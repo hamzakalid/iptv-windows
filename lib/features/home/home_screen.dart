@@ -15,6 +15,7 @@ import '../../widgets/common.dart';
 import '../../widgets/media_cards.dart';
 import '../../widgets/media_row.dart';
 import '../../widgets/nocturne.dart';
+import '../actors/actors_screen.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -25,7 +26,9 @@ class HomeScreen extends ConsumerWidget {
     return Scaffold(
       body: RefreshIndicator(
         onRefresh: () async {
-          ref.invalidate(recommendationsProvider);
+          ref.invalidate(suggestionsProvider);
+          ref.invalidate(featuredProvider);
+          ref.invalidate(topActorsProvider);
           ref.invalidate(historyProvider);
           ref.invalidate(homeProvider);
           await ref.read(homeProvider.future);
@@ -47,9 +50,9 @@ class HomeScreen extends ConsumerWidget {
 /// Poster (2:3 + title + meta) row height, including the scroller padding.
 double _posterRowHeight(double w) => w * 1.5 + 54;
 
-/// Featured titles: three best-rated movies and two newest series (with
-/// artwork), topped up from the other lists.
-List<MediaItem> _featured(HomeData data) {
+/// Library fallback for the hero when `/home/featured` has nothing: three
+/// best-rated movies and two newest series (with artwork), topped up.
+List<FeaturedItem> _libraryFeatured(HomeData data) {
   final seen = <String>{};
   final out = <MediaItem>[];
   void take(Iterable<MediaItem> from, int n) {
@@ -62,7 +65,7 @@ List<MediaItem> _featured(HomeData data) {
   take(data.topRatedMovies, 3);
   take(data.recentSeries, 2);
   take([...data.topRatedMovies, ...data.recentSeries, ...data.recentMovies], 5 - out.length);
-  return out;
+  return out.map(FeaturedItem.fromMedia).toList();
 }
 
 class _HomeContent extends ConsumerWidget {
@@ -73,7 +76,14 @@ class _HomeContent extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final s = _sizes(context);
     final becauseRows = ref.watch(becauseYouWatchedProvider);
-    final hero = _featured(data);
+    final featured = ref.watch(featuredProvider);
+    final suggestions = ref.watch(suggestionsProvider).value;
+    final actors = ref.watch(topActorsProvider).value ?? const <Actor>[];
+
+    // Trending-on-the-internet titles that exist in the catalogue lead the
+    // hero; library picks stand in while they load or when TMDB is off.
+    final trending = featured.value?.items ?? const <FeaturedItem>[];
+    final hero = trending.isNotEmpty ? trending : _libraryFeatured(data);
 
     Widget posters(List<MediaItem> items) => _Row(
           height: _posterRowHeight(s.poster),
@@ -82,9 +92,19 @@ class _HomeContent extends ConsumerWidget {
           itemBuilder: (_, i) => PosterCard(item: items[i], width: s.poster),
         );
 
+    Widget noted(List<(MediaItem, String?)> items) => _Row(
+          height: _posterRowHeight(s.poster) + 16,
+          arrowInset: 62,
+          itemCount: items.length,
+          itemBuilder: (_, i) => _NotedPoster(item: items[i].$1, note: items[i].$2, width: s.poster),
+        );
+
+    final fresh = suggestions?.newArrivals ?? const <Suggestion>[];
+    final mostWatched = suggestions?.mostWatched ?? const <MostWatched>[];
+
     return CustomScrollView(slivers: [
       SliverToBoxAdapter(child: SafeArea(bottom: false, child: _Header(data: data))),
-      if (hero.isNotEmpty) SliverToBoxAdapter(child: _Hero(items: hero)),
+      if (hero.isNotEmpty) SliverToBoxAdapter(child: _Hero(items: hero, trending: trending.isNotEmpty)),
       if (data.isEmpty)
         const SliverFillRemaining(
           hasScrollBody: false,
@@ -105,6 +125,17 @@ class _HomeContent extends ConsumerWidget {
           ),
         ],
         if (data.movieCount > 0) _GenreSection(poster: s.poster),
+        if (fresh.isNotEmpty) ...[
+          RowHeading('New for you',
+              note: suggestions!.isPersonalised
+                  ? 'Newest across your playlists, closest to your taste first'
+                  : 'Newest across your playlists'),
+          noted([for (final x in fresh) (x.item, x.reason)]),
+        ],
+        if (mostWatched.isNotEmpty) ...[
+          RowHeading('Your most watched', note: 'By time watched, across all your playlists'),
+          noted([for (final x in mostWatched) (x.item, x.label)]),
+        ],
         if (data.liveChannels.isNotEmpty) ...[
           RowHeading('Live now', action: 'Guide', onAction: () => context.go('/live')),
           _Row(
@@ -112,6 +143,10 @@ class _HomeContent extends ConsumerWidget {
             itemCount: data.liveChannels.length,
             itemBuilder: (_, i) => LiveNowTile(item: data.liveChannels[i], width: s.live),
           ),
+        ],
+        for (final row in becauseRows) ...[
+          RowHeading(row.title),
+          posters(row.items),
         ],
         if (data.topRatedMovies.isNotEmpty) ...[
           RowHeading('Top rated', action: 'See all', onAction: () {
@@ -124,9 +159,14 @@ class _HomeContent extends ConsumerWidget {
           RowHeading('New series', action: 'See all', onAction: () => context.go('/series')),
           posters(data.recentSeries),
         ],
-        for (final row in becauseRows) ...[
-          RowHeading(row.title),
-          posters(row.items),
+        if (actors.isNotEmpty) ...[
+          RowHeading('Actors in your library', action: 'See all', onAction: () => context.go('/actors')),
+          _Row(
+            height: ActorCard.heightFor(110) + 8,
+            arrowInset: 56,
+            itemCount: actors.length,
+            itemBuilder: (_, i) => SizedBox(height: ActorCard.heightFor(110), child: ActorCard(actor: actors[i], width: 110)),
+          ),
         ],
         const SizedBox(height: 32),
       ]),
@@ -149,6 +189,31 @@ class _Row extends StatelessWidget {
         arrowInset: arrowInset,
         padding: EdgeInsets.fromLTRB(context.pagePadding, 2, context.pagePadding, 6),
         itemBuilder: (c, i) => Align(alignment: Alignment.topLeft, child: itemBuilder(c, i)),
+      );
+}
+
+/// Poster card with an extra muted line: why it was suggested, or how much
+/// of it was watched.
+class _NotedPoster extends StatelessWidget {
+  const _NotedPoster({required this.item, required this.note, required this.width});
+  final MediaItem item;
+  final String? note;
+  final double width;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width: width,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          PosterCard(item: item, width: width),
+          if (note != null && note!.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(note!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 11.5, color: AppColors.a400)),
+            ),
+        ]),
       );
 }
 
@@ -213,11 +278,14 @@ class _SearchButton extends ConsumerWidget {
       );
 }
 
-/// Featured hero: backdrop with a readable scrim, copy bottom-left,
-/// prev/next + dots bottom-right. Advances every 8 s.
+/// Featured hero: TMDB backdrop with a readable scrim, copy bottom-left, the
+/// TMDB poster and prev/next + dots bottom-right. Advances every 8 s.
 class _Hero extends ConsumerStatefulWidget {
-  const _Hero({required this.items});
-  final List<MediaItem> items;
+  const _Hero({required this.items, required this.trending});
+  final List<FeaturedItem> items;
+
+  /// Whether the slides come from what's trending (vs. library picks).
+  final bool trending;
 
   @override
   ConsumerState<_Hero> createState() => _HeroState();
@@ -233,6 +301,13 @@ class _HeroState extends ConsumerState<_Hero> {
     _restart();
   }
 
+  @override
+  void didUpdateWidget(_Hero old) {
+    super.didUpdateWidget(old);
+    // Library picks → trending titles: start the new deck from the top.
+    if (old.trending != widget.trending) _go(0);
+  }
+
   void _restart() {
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 8), (_) {
@@ -242,7 +317,7 @@ class _HeroState extends ConsumerState<_Hero> {
 
   void _go(int i) {
     final n = widget.items.length;
-    setState(() => _index = (i % n + n) % n);
+    setState(() => _index = n == 0 ? 0 : (i % n + n) % n);
     _restart();
   }
 
@@ -256,7 +331,8 @@ class _HeroState extends ConsumerState<_Hero> {
   Widget build(BuildContext context) {
     final items = widget.items;
     if (_index >= items.length) _index = 0;
-    final item = items[_index];
+    final slide = items[_index];
+    final item = slide.item;
     final wide = context.isWide;
     final pad = context.pagePadding;
     ref.watch(favoritesProvider);
@@ -285,8 +361,11 @@ class _HeroState extends ConsumerState<_Hero> {
 
     final copy = ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 620),
-      child: _HeroCopy(item: item, saved: saved, compact: !wide),
+      child: _HeroCopy(slide: slide, saved: saved, compact: !wide),
     );
+
+    final poster = slide.poster;
+    final showPoster = wide && context.isExpanded && poster != null && poster.startsWith('http');
 
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: pad),
@@ -310,7 +389,7 @@ class _HeroState extends ConsumerState<_Hero> {
           child: Stack(fit: StackFit.expand, children: [
             AnimatedSwitcher(
               duration: const Duration(milliseconds: 500),
-              child: _Backdrop(key: ValueKey(item.id), url: item.backdrop),
+              child: _Backdrop(key: ValueKey('${item.id}:${slide.backdrop}'), url: slide.backdrop),
             ),
             const _Scrim(),
             Positioned(
@@ -319,8 +398,12 @@ class _HeroState extends ConsumerState<_Hero> {
               bottom: wide ? 28 : 18,
               child: wide
                   ? Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                      Expanded(child: Align(alignment: Alignment.bottomLeft, child: _fade(item, copy))),
+                      Expanded(child: Align(alignment: Alignment.bottomLeft, child: _fade(slide, copy))),
                       const SizedBox(width: 24),
+                      if (showPoster) ...[
+                        _fade(slide, _HeroPoster(url: poster, label: slide.title, onTap: () => openItem(context, item))),
+                        const SizedBox(width: 24),
+                      ],
                       if (items.length > 1)
                         Row(mainAxisSize: MainAxisSize.min, children: [
                           NocIconButton(
@@ -333,7 +416,7 @@ class _HeroState extends ConsumerState<_Hero> {
                         ]),
                     ])
                   : Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-                      _fade(item, copy),
+                      _fade(slide, copy),
                       if (items.length > 1) ...[const SizedBox(height: 14), dots],
                     ]),
             ),
@@ -343,11 +426,32 @@ class _HeroState extends ConsumerState<_Hero> {
     );
   }
 
-  Widget _fade(MediaItem item, Widget child) => AnimatedSwitcher(
+  Widget _fade(FeaturedItem slide, Widget child) => AnimatedSwitcher(
         duration: const Duration(milliseconds: 300),
         layoutBuilder: (current, previous) =>
             Stack(alignment: Alignment.bottomLeft, children: [...previous, ?current]),
-        child: KeyedSubtree(key: ValueKey(item.id), child: child),
+        child: KeyedSubtree(key: ValueKey(slide.item.id), child: child),
+      );
+}
+
+/// The TMDB poster shown beside the copy on expanded layouts.
+class _HeroPoster extends StatelessWidget {
+  const _HeroPoster({required this.url, required this.label, required this.onTap});
+  final String url;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => HoverRing(
+        onTap: onTap,
+        child: Container(
+          width: 150,
+          decoration: BoxDecoration(borderRadius: BorderRadius.circular(Radii.md), boxShadow: Shadows.md),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(Radii.md),
+            child: AspectRatio(aspectRatio: 2 / 3, child: NetImage(url, label: label, memCacheWidth: 400)),
+          ),
+        ),
       );
 }
 
@@ -404,15 +508,16 @@ class _Scrim extends StatelessWidget {
 
 /// Tags, title, meta line, plot and actions for the featured title.
 class _HeroCopy extends ConsumerWidget {
-  const _HeroCopy({required this.item, required this.saved, required this.compact});
-  final MediaItem item;
+  const _HeroCopy({required this.slide, required this.saved, required this.compact});
+  final FeaturedItem slide;
   final bool saved;
   final bool compact;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final item = slide.item;
     final tags = [item.kind.label, ...item.genres.take(3)];
-    final rating = item.rating;
+    final rating = slide.rating;
     final seasons = item.seasonCount;
     final meta = <Widget>[
       if (rating != null && rating > 0)
@@ -420,18 +525,24 @@ class _HeroCopy extends ConsumerWidget {
           const Icon(PhF.star, size: 13, color: AppColors.a300),
           const SizedBox(width: 4),
           Text(rating.toStringAsFixed(1), style: const TextStyle(color: AppColors.a300)),
+          if (slide.isTrending && (slide.voteCount ?? 0) >= 100)
+            Text(' · ${formatCount(slide.voteCount!)} votes', style: const TextStyle(color: AppColors.n500)),
         ]),
-      if (item.year != null) Text('${item.year}'),
+      if (slide.year != null) Text('${slide.year}'),
       if (item.kind == MediaKind.movie && (item.durationSecs ?? 0) > 0)
         Text(formatDuration(item.durationSecs))
       else if (item.kind == MediaKind.series && seasons != null)
         Text('$seasons season${seasons == 1 ? '' : 's'}'),
     ];
+    final plot = slide.plot;
     const gap = SizedBox(height: 10);
     return Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-      Wrap(spacing: 6, runSpacing: 6, children: [for (final t in tags) NocTag(t)]),
+      Wrap(spacing: 6, runSpacing: 6, children: [
+        if (slide.isTrending) const NocTag('Trending now', kind: TagKind.accent, icon: Ph.fire),
+        for (final t in tags) NocTag(t),
+      ]),
       gap,
-      Text(item.name, maxLines: 2, overflow: TextOverflow.ellipsis, style: compact ? NocText.h3 : NocText.h1),
+      Text(slide.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: compact ? NocText.h3 : NocText.h1),
       if (meta.isNotEmpty) ...[
         gap,
         DefaultTextStyle.merge(
@@ -439,9 +550,9 @@ class _HeroCopy extends ConsumerWidget {
           child: Wrap(spacing: 10, crossAxisAlignment: WrapCrossAlignment.center, children: meta),
         ),
       ],
-      if ((item.plot ?? '').isNotEmpty) ...[
+      if ((plot ?? '').isNotEmpty) ...[
         gap,
-        Text(item.plot!,
+        Text(plot!,
             maxLines: compact ? 2 : 3,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontSize: 14, height: 1.5, color: AppColors.n300)),
@@ -467,7 +578,9 @@ class _HeroCopy extends ConsumerWidget {
   }
 }
 
-/// Genre pills ("For you", "Action", …) driving the poster row beneath.
+/// Pills driving the poster row beneath: "For you" (user-level suggestions,
+/// independent of the active playlist) followed by the IPTV account's movie
+/// categories in the provider's order.
 class _GenreSection extends ConsumerStatefulWidget {
   const _GenreSection({required this.poster});
   final double poster;
@@ -482,24 +595,27 @@ class _GenreSectionState extends ConsumerState<_GenreSection> {
   @override
   Widget build(BuildContext context) {
     final pad = context.pagePadding;
-    final cats = ref.watch(categoriesProvider(MediaKind.movie)).value?.names ?? const <String>[];
-    final labels = ['For you', ...cats];
+    final cats = ref.watch(categoriesProvider(MediaKind.movie)).value;
+    final names = cats?.ordered ?? const <String>[];
+    final labels = ['For you', ...names];
     if (_selected >= labels.length) _selected = 0;
     final group = _selected == 0 ? null : labels[_selected];
 
-    final List<MediaItem> items;
+    final List<(MediaItem, String?)> items;
     final bool loading;
     String? note;
     if (group == null) {
-      final recs = ref.watch(recommendationsProvider);
-      items = ref.watch(forYouProvider);
-      loading = recs.isLoading;
-      note = (recs.value ?? const <Recommendation>[]).where((r) => r.seedName != null).firstOrNull?.reasonTitle ??
-          (items.isEmpty ? null : 'Top picks from your playlist');
+      final sug = ref.watch(suggestionsProvider);
+      final byId = {for (final s in sug.value?.suggested ?? const <Suggestion>[]) s.item.id: s.reason};
+      items = [for (final m in ref.watch(forYouProvider)) (m, byId[m.id])];
+      loading = sug.isLoading;
+      note = sug.value?.basisLabel ?? (items.isEmpty ? null : 'Top picks from your library');
     } else {
       final row = ref.watch(categoryRowProvider(group));
-      items = row.value ?? const [];
+      items = [for (final m in row.value ?? const <MediaItem>[]) (m, null)];
       loading = row.isLoading;
+      final n = cats?.countFor(group);
+      note = n == null ? null : '${formatCount(n)} title${n == 1 ? '' : 's'}';
     }
 
     void seeAll() {
@@ -515,12 +631,16 @@ class _GenreSectionState extends ConsumerState<_GenreSection> {
           separator: 6,
           itemCount: labels.length,
           padding: EdgeInsets.symmetric(horizontal: pad),
-          itemBuilder: (_, i) =>
-              Center(child: Pill(labels[i], selected: i == _selected, onTap: () => setState(() => _selected = i))),
+          itemBuilder: (_, i) => Center(
+            child: Pill(labels[i],
+                icon: i == 0 ? Ph.sparkle : null,
+                selected: i == _selected,
+                onTap: () => setState(() => _selected = i)),
+          ),
         ),
       ),
       RowHeading(
-        group ?? 'Recommended for you',
+        group ?? 'Suggested for you',
         note: note,
         action: 'See all',
         onAction: seeAll,
@@ -551,10 +671,12 @@ class _GenreSectionState extends ConsumerState<_GenreSection> {
         )
       else
         _Row(
-          height: _posterRowHeight(widget.poster),
-          arrowInset: 46,
+          height: _posterRowHeight(widget.poster) + (group == null ? 16 : 0),
+          arrowInset: group == null ? 62 : 46,
           itemCount: items.length,
-          itemBuilder: (_, i) => PosterCard(item: items[i], width: widget.poster),
+          itemBuilder: (_, i) => group == null
+              ? _NotedPoster(item: items[i].$1, note: items[i].$2, width: widget.poster)
+              : PosterCard(item: items[i].$1, width: widget.poster),
         ),
     ]);
   }

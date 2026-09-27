@@ -26,16 +26,17 @@ final homeProvider = FutureProvider<HomeData>((ref) async {
   return data;
 });
 
-final recommendationsProvider = FutureProvider<List<Recommendation>>((ref) => ref
-    .watch(repositoryProvider)
-    .recommendations(playlistId: ref.watch(activePlaylistProvider))
-    .catchError((_) => <Recommendation>[]));
+/// User-level discovery from `/suggestions`: built from the user's history
+/// across every playlist, so switching the active IPTV account doesn't
+/// change it. Errors degrade to an empty payload.
+final suggestionsProvider = FutureProvider<Suggestions>(
+    (ref) => ref.watch(repositoryProvider).suggestions().catchError((_) => Suggestions()));
 
 /// Flat "For you" list. Personalised picks come first; when there are few
-/// (new account, small playlist) the row is topped up with the best-rated
+/// (new account, small library) the row is topped up with the best-rated
 /// titles the user hasn't finished, so it never looks empty.
 final forYouProvider = Provider<List<MediaItem>>((ref) {
-  final recs = (ref.watch(recommendationsProvider).value ?? const <Recommendation>[]).map((r) => r.item).toList();
+  final recs = (ref.watch(suggestionsProvider).value?.suggested ?? const <Suggestion>[]).map((r) => r.item).toList();
   if (recs.length >= 8) return recs;
   final watched = ref.watch(watchedIdsProvider);
   final seen = recs.map((m) => m.id).toSet();
@@ -45,22 +46,30 @@ final forYouProvider = Provider<List<MediaItem>>((ref) {
 
 typedef SeedRow = ({String title, List<MediaItem> items});
 
-/// Recommendations grouped by the title that produced them, biggest groups
-/// first. Rows with fewer than three items aren't worth a carousel.
+/// "Because you watched …" rows, biggest first (the server already drops
+/// rows with fewer than three titles).
 final becauseYouWatchedProvider = Provider<List<SeedRow>>((ref) {
-  final recs = ref.watch(recommendationsProvider).value ?? const <Recommendation>[];
-  final groups = <String, List<MediaItem>>{};
-  for (final r in recs) {
-    if (r.seedName == null) continue;
-    groups.putIfAbsent(r.reasonTitle, () => []).add(r.item);
-  }
-  final rows = groups.entries
-      .where((e) => e.value.length >= 3)
-      .map((e) => (title: e.key, items: e.value))
-      .toList()
-    ..sort((a, b) => b.items.length.compareTo(a.items.length));
-  return rows.take(3).toList();
+  final rows = ref.watch(suggestionsProvider).value?.becauseYouWatched ?? const <BecauseRow>[];
+  return rows.map((r) => (title: r.title, items: r.items.map((s) => s.item).toList())).take(3).toList();
 });
+
+/// Hero slides from `/home/featured` (TMDB trending ∩ catalogue). Empty on
+/// error so Home falls back to library picks.
+final featuredProvider = FutureProvider<Featured>((ref) =>
+    ref.watch(repositoryProvider).featured().catchError((_) => Featured(source: 'none', items: const [])));
+
+typedef ActorsQuery = ({String q, String sort, bool withPhoto});
+
+/// First page of actors for a query; the Actors screen pages further itself.
+final actorsProvider = FutureProvider.autoDispose.family<Paged<Actor>, ActorsQuery>((ref, q) =>
+    ref.watch(repositoryProvider).actors(q: q.q, sort: q.sort, withPhoto: q.withPhoto, limit: 60));
+
+/// Actors with the most credits in the library, for the Home row.
+final topActorsProvider = FutureProvider<List<Actor>>((ref) => ref
+    .watch(repositoryProvider)
+    .actors(sort: 'titles', withPhoto: true, limit: 18)
+    .then((p) => p.items)
+    .catchError((_) => <Actor>[]));
 
 final categoriesProvider = FutureProvider.family<Categories, MediaKind>((ref, kind) =>
     ref.watch(repositoryProvider).categories(kind, playlistId: ref.watch(activePlaylistProvider)));
@@ -86,8 +95,8 @@ final similarProvider = FutureProvider.autoDispose.family<List<MediaItem>, ItemR
 final progressProvider = FutureProvider.autoDispose.family<WatchProgress?, String>(
     (ref, contentId) => ref.watch(repositoryProvider).progressFor(contentId).catchError((_) => null));
 
-final actorProvider = FutureProvider.autoDispose
-    .family<(Actor, List<MediaItem>), String>((ref, id) => ref.watch(repositoryProvider).actor(id));
+final actorProvider =
+    FutureProvider.autoDispose.family<ActorPage, String>((ref, id) => ref.watch(repositoryProvider).actor(id));
 
 final searchProvider = FutureProvider.autoDispose.family<SearchResults, String>((ref, q) =>
     ref.watch(repositoryProvider).search(q, playlistId: ref.watch(activePlaylistProvider)));
