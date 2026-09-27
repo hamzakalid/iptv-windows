@@ -2,64 +2,36 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../core/theme.dart';
+import 'nocturne.dart';
 
-/// Network image with a branded placeholder and a monogram fallback.
+/// Network image with a Nocturne placeholder and a monogram fallback.
 class NetImage extends StatelessWidget {
-  const NetImage(this.url, {super.key, this.fit = BoxFit.cover, this.label, this.memCacheWidth});
+  const NetImage(this.url, {super.key, this.fit = BoxFit.cover, this.label, this.memCacheWidth, this.fontSize = 20});
 
   final String? url;
   final BoxFit fit;
   final String? label;
   final int? memCacheWidth;
+  final double fontSize;
 
   @override
   Widget build(BuildContext context) {
-    final fallback = _Fallback(label: label);
+    final fallback = ArtPlaceholder(label: label, fontSize: fontSize);
     if (url == null || !url!.startsWith('http')) return fallback;
     return CachedNetworkImage(
       imageUrl: url!,
       fit: fit,
       memCacheWidth: memCacheWidth,
       fadeInDuration: const Duration(milliseconds: 200),
-      placeholder: (_, _) => const ColoredBox(color: AppColors.surfaceHigh),
+      placeholder: (_, _) => const ArtPlaceholder(child: SizedBox.shrink()),
       errorWidget: (_, _, _) => fallback,
     );
   }
 }
 
-class _Fallback extends StatelessWidget {
-  const _Fallback({this.label});
-  final String? label;
-
-  @override
-  Widget build(BuildContext context) {
-    final initials = (label ?? '')
-        .split(RegExp(r'\s+'))
-        .where((w) => w.isNotEmpty && RegExp(r'^[\p{L}\p{N}]', unicode: true).hasMatch(w))
-        .take(2)
-        .map((w) => w.characters.first.toUpperCase())
-        .join();
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Color(0xFF221A3D), Color(0xFF2D1530)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-      ),
-      child: Center(
-        child: Text(
-          initials.isEmpty ? '•' : initials,
-          style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: Colors.white54),
-        ),
-      ),
-    );
-  }
-}
-
-/// Pulsing grey box used while content loads.
+/// Pulsing box used while content loads.
 class Skeleton extends StatefulWidget {
-  const Skeleton({super.key, this.width, this.height, this.radius = 12});
+  const Skeleton({super.key, this.width, this.height, this.radius = Radii.md});
   final double? width;
   final double? height;
   final double radius;
@@ -85,13 +57,15 @@ class _SkeletonState extends State<Skeleton> with SingleTickerProviderStateMixin
           width: widget.width,
           height: widget.height,
           decoration: BoxDecoration(
-            color: AppColors.surfaceHigh,
+            color: AppColors.n900,
             borderRadius: BorderRadius.circular(widget.radius),
           ),
         ),
       );
 }
 
+/// The primary call to action — in Nocturne an accent outline, not a fill.
+/// Kept under its old name so existing call sites keep working.
 class GradientButton extends StatelessWidget {
   const GradientButton({super.key, required this.label, this.icon, this.onPressed, this.loading = false});
 
@@ -102,45 +76,22 @@ class GradientButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final enabled = onPressed != null && !loading;
-    return Opacity(
-      opacity: enabled ? 1 : 0.6,
-      child: DecoratedBox(
+    if (loading) {
+      return Container(
+        height: 38,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
         decoration: BoxDecoration(
-          gradient: AppColors.brandGradient,
-          borderRadius: BorderRadius.circular(14),
-          boxShadow: [
-            BoxShadow(color: AppColors.primary.withValues(alpha: 0.35), blurRadius: 20, offset: const Offset(0, 8)),
-          ],
+          border: Border.all(color: AppColors.accent),
+          borderRadius: BorderRadius.circular(Radii.md),
         ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(14),
-            onTap: enabled ? onPressed : null,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 15),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  if (loading)
-                    const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                    )
-                  else if (icon != null)
-                    Icon(icon, color: Colors.white, size: 22),
-                  if (loading || icon != null) const SizedBox(width: 10),
-                  Text(label,
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 15)),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          const SizedBox.square(dimension: 14, child: CircularProgressIndicator(strokeWidth: 1.5)),
+          const SizedBox(width: 8),
+          Text(label, style: const TextStyle(color: AppColors.accent, fontWeight: FontWeight.w500)),
+        ]),
+      );
+    }
+    return NocButton.primary(label: label, icon: icon, onPressed: onPressed, height: 38);
   }
 }
 
@@ -154,7 +105,6 @@ class EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = Theme.of(context).textTheme;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -164,23 +114,23 @@ class EmptyState extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                padding: const EdgeInsets.all(22),
+                width: 64,
+                height: 64,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  gradient: LinearGradient(colors: [
-                    AppColors.primary.withValues(alpha: 0.25),
-                    AppColors.accent.withValues(alpha: 0.15),
-                  ]),
+                  border: Border.all(color: AppColors.n800),
+                  color: AppColors.n900,
                 ),
-                child: Icon(icon, size: 40, color: AppColors.text),
+                child: Icon(icon, size: 28, color: AppColors.n500),
               ),
-              const SizedBox(height: 20),
-              Text(title, style: t.titleLarge, textAlign: TextAlign.center),
+              const SizedBox(height: 18),
+              Text(title, style: NocText.h5, textAlign: TextAlign.center),
               if (message != null) ...[
                 const SizedBox(height: 8),
-                Text(message!, style: t.bodyMedium?.copyWith(color: AppColors.textMuted), textAlign: TextAlign.center),
+                Text(message!,
+                    style: TextStyle(fontSize: 13.5, color: AppColors.muted, height: 1.5), textAlign: TextAlign.center),
               ],
-              if (action != null) ...[const SizedBox(height: 24), action!],
+              if (action != null) ...[const SizedBox(height: 20), action!],
             ],
           ),
         ),
@@ -196,12 +146,12 @@ class ErrorView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => EmptyState(
-        icon: Icons.cloud_off_rounded,
+        icon: Ph.cloudSlash,
         title: 'Something went wrong',
         message: error.toString(),
         action: onRetry == null
             ? null
-            : OutlinedButton.icon(onPressed: onRetry, icon: const Icon(Icons.refresh), label: const Text('Try again')),
+            : NocButton(label: 'Try again', icon: Ph.arrowClockwise, onPressed: onRetry),
       );
 }
 
@@ -213,15 +163,10 @@ class RatingBadge extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
         decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.65),
-          borderRadius: BorderRadius.circular(8),
+          color: AppColors.bg.withValues(alpha: 0.7),
+          borderRadius: BorderRadius.circular(Radii.sm),
         ),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          const Icon(Icons.star_rounded, size: 14, color: AppColors.gold),
-          const SizedBox(width: 2),
-          Text(rating.toStringAsFixed(1),
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white)),
-        ]),
+        child: StarRating(rating, size: 11),
       );
 }
 
@@ -229,12 +174,7 @@ class LiveBadge extends StatelessWidget {
   const LiveBadge({super.key});
 
   @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-        decoration: BoxDecoration(color: AppColors.live, borderRadius: BorderRadius.circular(6)),
-        child: const Text('LIVE',
-            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 0.8, color: Colors.white)),
-      );
+  Widget build(BuildContext context) => const NocTag('LIVE', kind: TagKind.accent);
 }
 
 class MetaChip extends StatelessWidget {
@@ -243,23 +183,13 @@ class MetaChip extends StatelessWidget {
   final IconData? icon;
 
   @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
-        ),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          if (icon != null) ...[Icon(icon, size: 14, color: AppColors.textMuted), const SizedBox(width: 4)],
-          Text(label, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500)),
-        ]),
-      );
+  Widget build(BuildContext context) => NocTag(label, icon: icon);
 }
 
-/// Adds a lift + glow on hover (desktop) and optionally reveals an overlay.
+/// Card wrapper that shows the Nocturne hover ring (and optionally an
+/// overlay) on desktop.
 class Hoverable extends StatefulWidget {
-  const Hoverable({super.key, required this.child, required this.onTap, this.radius = 14, this.overlay});
+  const Hoverable({super.key, required this.child, required this.onTap, this.radius = Radii.md, this.overlay});
   final Widget child;
   final VoidCallback onTap;
   final double radius;
@@ -282,82 +212,67 @@ class _HoverableState extends State<Hoverable> {
       onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(
         onTap: widget.onTap,
-        child: AnimatedScale(
-          scale: _hover ? 1.03 : 1,
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOut,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(widget.radius),
-              boxShadow: _hover
-                  ? [BoxShadow(color: Colors.black.withValues(alpha: 0.5), blurRadius: 24, offset: const Offset(0, 10))]
-                  : const [],
-            ),
-            child: widget.overlay == null
-                ? widget.child
-                : Stack(fit: StackFit.passthrough, children: [
-                    widget.child,
-                    Positioned.fill(
-                      child: IgnorePointer(
-                        ignoring: !_hover,
-                        child: AnimatedOpacity(
-                          opacity: _hover ? 1 : 0,
-                          duration: const Duration(milliseconds: 160),
-                          child: widget.overlay,
-                        ),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(widget.radius),
+            boxShadow: _hover ? Shadows.hoverRing : const [],
+          ),
+          child: widget.overlay == null
+              ? widget.child
+              : Stack(fit: StackFit.passthrough, children: [
+                  widget.child,
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      ignoring: !_hover,
+                      child: AnimatedOpacity(
+                        opacity: _hover ? 1 : 0,
+                        duration: const Duration(milliseconds: 160),
+                        child: widget.overlay,
                       ),
                     ),
-                  ]),
-          ),
+                  ),
+                ]),
         ),
       ),
     );
   }
 }
 
-/// Small pill used for genres and metadata, matching the reference chips.
+/// Genre / filter pill: divider outline; selected gets an accent outline,
+/// a faint accent tint and accent-300 text.
 class Pill extends StatelessWidget {
-  const Pill(this.label, {super.key, this.selected = false, this.onTap, this.icon});
+  const Pill(this.label, {super.key, this.selected = false, this.onTap, this.icon, this.compact = false});
   final String label;
   final bool selected;
   final VoidCallback? onTap;
   final IconData? icon;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
+    final fg = selected ? AppColors.a300 : AppColors.n300;
     final child = AnimatedContainer(
-      duration: const Duration(milliseconds: 150),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      duration: const Duration(milliseconds: 120),
+      padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 12, vertical: compact ? 4 : 5),
       decoration: BoxDecoration(
-        color: selected ? AppColors.text : AppColors.surfaceHigh,
-        borderRadius: BorderRadius.circular(Radii.chip),
-        border: Border.all(color: selected ? AppColors.text : AppColors.outline),
+        color: selected ? AppColors.accentTint : Colors.transparent,
+        borderRadius: BorderRadius.circular(Radii.md),
+        border: Border.all(color: selected ? AppColors.accent : AppColors.divider),
       ),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        if (icon != null) ...[
-          Icon(icon, size: 15, color: selected ? AppColors.bg : AppColors.textMuted),
-          const SizedBox(width: 6),
-        ],
-        Text(label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: selected ? AppColors.bg : AppColors.text,
-            )),
+        if (icon != null) ...[Icon(icon, size: 14, color: fg), const SizedBox(width: 6)],
+        Text(label, style: TextStyle(fontSize: compact ? 12.5 : 13, color: fg, height: 1.4)),
       ]),
     );
     if (onTap == null) return child;
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(onTap: onTap, child: child),
-    );
+    return Tappable(onTap: onTap, child: child);
   }
 }
 
-/// Circular translucent icon button used over artwork.
+/// Small translucent icon button used over artwork (bookmark on posters).
 class GlassIconButton extends StatelessWidget {
-  const GlassIconButton({super.key, required this.icon, required this.onTap, this.size = 40, this.color, this.tooltip});
+  const GlassIconButton({super.key, required this.icon, required this.onTap, this.size = 30, this.color, this.tooltip});
   final IconData icon;
   final VoidCallback onTap;
   final double size;
@@ -366,20 +281,24 @@ class GlassIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final b = Material(
-      color: Colors.black.withValues(alpha: 0.45),
-      shape: const CircleBorder(side: BorderSide(color: Colors.white24)),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onTap,
-        child: SizedBox.square(dimension: size, child: Icon(icon, size: size * 0.5, color: color ?? Colors.white)),
+    final b = Tappable(
+      onTap: onTap,
+      hover: AppColors.bg.withValues(alpha: 0.3),
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: AppColors.bg.withValues(alpha: 0.55),
+          borderRadius: BorderRadius.circular(Radii.md),
+        ),
+        child: Icon(icon, size: size * 0.5, color: color ?? AppColors.n300),
       ),
     );
     return tooltip == null ? b : Tooltip(message: tooltip!, child: b);
   }
 }
 
-/// Gold star + rating, e.g. "★ 7.1".
+/// Filled star + rating in accent-300, e.g. "★ 7.1".
 class StarRating extends StatelessWidget {
   const StarRating(this.rating, {super.key, this.size = 12});
   final double rating;
@@ -387,9 +306,8 @@ class StarRating extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(Icons.star_rounded, size: size + 3, color: AppColors.gold),
-        const SizedBox(width: 2),
-        Text(rating.toStringAsFixed(1),
-            style: TextStyle(fontSize: size, fontWeight: FontWeight.w700, color: AppColors.gold)),
+        Icon(PhF.star, size: size + 1, color: AppColors.a300),
+        const SizedBox(width: 3),
+        Text(rating.toStringAsFixed(1), style: TextStyle(fontSize: size, color: AppColors.a300)),
       ]);
 }

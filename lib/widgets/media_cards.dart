@@ -9,6 +9,7 @@ import '../models/media.dart';
 import '../features/player/player_screen.dart';
 import '../state/providers.dart';
 import 'common.dart';
+import 'nocturne.dart';
 
 /// Opens the right screen for any catalogue item.
 void openItem(BuildContext context, MediaItem item) {
@@ -31,28 +32,39 @@ void playItem(BuildContext context, MediaItem item) {
   }
 }
 
-/// "2025 • ★ 7.1" under a poster; falls back to the category.
+/// Toggles My List and reports failures as a toast.
+void toggleSaved(BuildContext context, WidgetRef ref, MediaItem item) {
+  ref.read(favoritesProvider.notifier).toggle(item).catchError((_) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Couldn’t update My List.')));
+    }
+  });
+}
+
+/// "2019 · ★ 7.4" for movies, "2019 · 2 seasons" for series.
+String posterSubtitle(MediaItem item) {
+  final parts = <String>[
+    if (item.year != null) '${item.year}',
+    if (item.kind == MediaKind.series)
+      item.seasonCount != null ? '${item.seasonCount} season${item.seasonCount == 1 ? '' : 's'}' : 'Series'
+    else if (item.rating != null && item.rating! > 0)
+      '★ ${item.rating!.toStringAsFixed(1)}',
+  ];
+  return parts.isEmpty ? item.group : parts.join(' · ');
+}
+
+/// Muted meta line under a poster.
 class MetaLine extends StatelessWidget {
   const MetaLine(this.item, {super.key});
   final MediaItem item;
 
   @override
-  Widget build(BuildContext context) {
-    final muted = Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.textMuted);
-    final hasRating = item.rating != null && item.rating! > 0;
-    if (item.year == null && !hasRating) {
-      return Text(item.group, maxLines: 1, overflow: TextOverflow.ellipsis, style: muted);
-    }
-    return Row(children: [
-      if (item.year != null) Text('${item.year}', style: muted),
-      if (item.year != null && hasRating) Text('  •  ', style: muted),
-      if (hasRating) StarRating(item.rating!),
-    ]);
-  }
+  Widget build(BuildContext context) => Text(posterSubtitle(item),
+      maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: AppColors.muted));
 }
 
-/// 2:3 poster with title and meta line. Hovering (desktop) reveals a
-/// quick-play overlay with genre and duration.
+/// 2:3 poster: bookmark to save, "Watched" tag, progress line, then title
+/// and a muted meta line. Hover draws the accent ring.
 class PosterCard extends ConsumerWidget {
   const PosterCard({super.key, required this.item, this.width});
   final MediaItem item;
@@ -60,8 +72,10 @@ class PosterCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final t = Theme.of(context).textTheme;
-    final watched = item.kind == MediaKind.movie && ref.watch(watchedIdsProvider).contains(item.id);
+    ref.watch(favoritesProvider);
+    final saved = ref.read(favoritesProvider.notifier).contains(item.id);
+    final watched = ref.watch(watchedIdsProvider).contains(item.id);
+    final pct = ref.watch(progressByIdProvider)[item.id] ?? 0;
     return SizedBox(
       width: width,
       child: Column(
@@ -69,32 +83,41 @@ class PosterCard extends ConsumerWidget {
         children: [
           AspectRatio(
             aspectRatio: 2 / 3,
-            child: Hoverable(
-              radius: Radii.card,
+            child: HoverRing(
               onTap: () => openItem(context, item),
-              overlay: context.hasMouse ? _PosterOverlay(item: item) : null,
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(Radii.card),
+                borderRadius: BorderRadius.circular(Radii.md),
                 child: Stack(fit: StackFit.expand, children: [
                   NetImage(item.logo, label: item.name, memCacheWidth: 400),
+                  Positioned(
+                    top: 4,
+                    right: 4,
+                    child: GlassIconButton(
+                      icon: saved ? PhF.bookmarkSimple : Ph.bookmarkSimple,
+                      color: saved ? AppColors.accent : AppColors.n300,
+                      tooltip: saved ? 'Remove from My List' : 'Add to My List',
+                      onTap: () => toggleSaved(context, ref, item),
+                    ),
+                  ),
                   if (watched)
+                    const Positioned(left: 6, bottom: 8, child: NocTag('Watched', kind: TagKind.accent, icon: Ph.check)),
+                  if (pct > 0 && !watched)
                     Positioned(
-                      top: 8,
-                      right: 8,
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: const BoxDecoration(color: AppColors.success, shape: BoxShape.circle),
-                        child: const Icon(Icons.check_rounded, size: 12, color: Colors.white),
-                      ),
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: ProgressLine(pct, height: 3, track: AppColors.text.withValues(alpha: 0.12)),
                     ),
                 ]),
               ),
             ),
           ),
-          const SizedBox(height: 9),
-          Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: t.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
-          const SizedBox(height: 2),
+          const SizedBox(height: 6),
+          Text(item.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w500)),
+          const SizedBox(height: 1),
           MetaLine(item),
         ],
       ),
@@ -102,43 +125,208 @@ class PosterCard extends ConsumerWidget {
   }
 }
 
-class _PosterOverlay extends StatelessWidget {
-  const _PosterOverlay({required this.item});
+/// EPG for a channel card: cached list details first, then a lazy fetch.
+ChannelEpg? useChannelEpg(WidgetRef ref, MediaItem channel) =>
+    cachedEpg(channel) ?? ref.watch(channelEpgProvider(channel.id)).value;
+
+/// "17:00 – 18:00"
+String epgTime(EpgEntry e) => '${formatClock(e.start)} – ${formatClock(e.end)}';
+
+/// Live TV grid card: 16:8 logo area with number, favourite star and a
+/// "Playing" tag, then name + group, what's on now, progress and next.
+class ChannelCard extends ConsumerWidget {
+  const ChannelCard({super.key, required this.item, this.width, this.showEpg = true});
+  final MediaItem item;
+  final double? width;
+  final bool showEpg;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(favoritesProvider);
+    final fav = ref.read(favoritesProvider.notifier).contains(item.id);
+    final playing = ref.watch(playingContentIdProvider) == item.id;
+    final epg = showEpg ? useChannelEpg(ref, item) : null;
+    final now = epg?.now;
+    final next = epg?.next;
+    final muted = TextStyle(fontSize: 11.5, color: AppColors.muted, fontFeatures: NocText.tabular);
+
+    return SizedBox(
+      width: width,
+      child: HoverRing(
+        active: playing,
+        onTap: () => openItem(context, item),
+        child: Container(
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(Radii.md)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
+            AspectRatio(
+              aspectRatio: 16 / 8,
+              child: Stack(fit: StackFit.expand, children: [
+                ArtPlaceholder(
+                  center: const Alignment(-0.4, -0.6),
+                  fontSize: 22,
+                  textColor: AppColors.n500,
+                  label: item.name,
+                  child: item.logo == null
+                      ? null
+                      : Padding(
+                          padding: const EdgeInsets.fromLTRB(40, 22, 40, 22),
+                          child: NetImage(item.logo, fit: BoxFit.contain, label: item.name, memCacheWidth: 300),
+                        ),
+                ),
+                if (item.number != null)
+                  Positioned(
+                    top: 8,
+                    left: 10,
+                    child: Text('${item.number}',
+                        style: const TextStyle(fontSize: 11, color: AppColors.n400, fontFeatures: NocText.tabular)),
+                  ),
+                Positioned(
+                  top: 4,
+                  right: 4,
+                  child: NocIconButton(
+                    icon: fav ? PhF.star : Ph.star,
+                    size: 30,
+                    iconSize: 16,
+                    color: fav ? AppColors.accent : AppColors.n600,
+                    tooltip: fav ? 'Remove from favourites' : 'Favourite',
+                    onPressed: () => toggleSaved(context, ref, item),
+                  ),
+                ),
+                if (playing)
+                  const Positioned(
+                    left: 10,
+                    bottom: 8,
+                    child: NocTag('Playing', kind: TagKind.accent, icon: PhF.speakerHigh),
+                  ),
+              ]),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
+                  Expanded(
+                    child: Text(item.name,
+                        maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w500)),
+                  ),
+                  if (item.group.isNotEmpty) ...[
+                    const SizedBox(width: 8),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 110),
+                      child: Text(item.group,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 11, color: AppColors.n600)),
+                    ),
+                  ],
+                ]),
+                const SizedBox(height: 4),
+                Text(now?.title ?? (showEpg ? 'No guide data' : item.group),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 13, color: now == null ? AppColors.n600 : AppColors.n300)),
+                const SizedBox(height: 8),
+                ProgressLine(now?.progress ?? 0),
+                const SizedBox(height: 6),
+                Row(children: [
+                  Text(now == null ? '' : epgTime(now), style: muted),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(next == null ? '' : 'Next ${formatClock(next.start)} ${next.title}',
+                        textAlign: TextAlign.right, maxLines: 1, overflow: TextOverflow.ellipsis, style: muted),
+                  ),
+                ]),
+              ]),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+/// Compact "Live now" tile: logo, "101 · Name", what's on, progress.
+class LiveNowTile extends ConsumerWidget {
+  const LiveNowTile({super.key, required this.item, this.width = 260, this.logoSize = 48});
+  final MediaItem item;
+  final double width;
+  final double logoSize;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final now = useChannelEpg(ref, item)?.now;
+    return SizedBox(
+      width: width,
+      child: HoverRing(
+        ring: Shadows.accentRing,
+        onTap: () => openItem(context, item),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(Radii.md)),
+          child: Row(children: [
+            LogoTile(
+              label: item.name,
+              width: logoSize,
+              height: logoSize,
+              fontSize: 12,
+              image: item.logo == null
+                  ? null
+                  : Padding(
+                      padding: const EdgeInsets.all(6),
+                      child: NetImage(item.logo, fit: BoxFit.contain, label: item.name, memCacheWidth: 120),
+                    ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
+                Text(channelLabel(item),
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: AppColors.n500)),
+                const SizedBox(height: 3),
+                Text(now?.title ?? item.group,
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13.5)),
+                const SizedBox(height: 5),
+                ProgressLine(now?.progress ?? 0),
+              ]),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+/// "101 · BBC News HD", or just the name when there's no number.
+String channelLabel(MediaItem c) => c.number == null ? c.name : '${c.number} · ${c.name}';
+
+/// Outlined chip for a channel ("Recently watched", "Favourite channels").
+class ChannelChip extends ConsumerWidget {
+  const ChannelChip({super.key, required this.item});
   final MediaItem item;
 
   @override
-  Widget build(BuildContext context) {
-    final info = [
-      if (item.genres.isNotEmpty) item.genres.take(2).join(' · '),
-      if (item.durationSecs != null && item.durationSecs! > 0) formatDuration(item.durationSecs),
-    ].join('  •  ');
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(Radii.card),
-      child: DecoratedBox(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0x33000000), Color(0xD9000000)],
+  Widget build(BuildContext context, WidgetRef ref) {
+    final now = useChannelEpg(ref, item)?.now;
+    return _OutlineHover(
+      onTap: () => openItem(context, item),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(6, 6, 12, 6),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          LogoTile(
+            label: item.name,
+            image: item.logo == null
+                ? null
+                : Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: NetImage(item.logo, fit: BoxFit.contain, label: item.name, memCacheWidth: 96),
+                  ),
           ),
-        ),
-        child: Stack(children: [
-          Center(
-            child: GlassIconButton(icon: Icons.play_arrow_rounded, size: 52, onTap: () => playItem(context, item)),
-          ),
-          Positioned(
-            left: 10,
-            right: 10,
-            bottom: 10,
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              if (info.isNotEmpty)
-                Text(info, maxLines: 2, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11.5, color: Colors.white70, height: 1.3)),
-              if (item.plot != null) ...[
-                const SizedBox(height: 4),
-                Text(item.plot!, maxLines: 3, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11, color: Colors.white60, height: 1.3)),
-              ],
+          const SizedBox(width: 10),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 170),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+              Text(channelLabel(item), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13)),
+              Text(now?.title ?? item.group,
+                  maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11.5, color: AppColors.muted)),
             ]),
           ),
         ]),
@@ -147,61 +335,37 @@ class _PosterOverlay extends StatelessWidget {
   }
 }
 
-/// 16:10 tile with a centred channel logo.
-class ChannelCard extends StatelessWidget {
-  const ChannelCard({super.key, required this.item, this.width});
-  final MediaItem item;
-  final double? width;
+/// Divider-outlined box that turns accent (with a faint tint) on hover.
+class _OutlineHover extends StatefulWidget {
+  const _OutlineHover({required this.child, required this.onTap});
+  final Widget child;
+  final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: width,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AspectRatio(
-            aspectRatio: 16 / 10,
-            child: Hoverable(
-              radius: Radii.card,
-              onTap: () => openItem(context, item),
-              child: Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(Radii.card),
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF1F2430), Color(0xFF161A22)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  border: Border.all(color: AppColors.outline),
-                ),
-                child: Stack(children: [
-                  Positioned.fill(
-                    child: Padding(
-                      padding: const EdgeInsets.all(18),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: item.logo == null
-                            ? NetImage(null, label: item.name)
-                            : NetImage(item.logo, fit: BoxFit.contain, label: item.name, memCacheWidth: 300),
-                      ),
-                    ),
-                  ),
-                  const Positioned(top: 8, left: 8, child: LiveBadge()),
-                ]),
-              ),
+  State<_OutlineHover> createState() => _OutlineHoverState();
+}
+
+class _OutlineHoverState extends State<_OutlineHover> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) => MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            decoration: BoxDecoration(
+              color: _hover ? AppColors.accent.withValues(alpha: 0.08) : Colors.transparent,
+              border: Border.all(color: _hover ? AppColors.accent : AppColors.divider),
+              borderRadius: BorderRadius.circular(Radii.md),
             ),
+            child: widget.child,
           ),
-          const SizedBox(height: 8),
-          Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
-          if (item.group.isNotEmpty)
-            Text(item.group, maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.textMuted)),
-        ],
-      ),
-    );
-  }
+        ),
+      );
 }
 
 void resumeEntry(BuildContext context, ContinueItem entry) {
@@ -214,7 +378,8 @@ void resumeEntry(BuildContext context, ContinueItem entry) {
   PlayerScreen.open(context, PlayerArgs.movie(item, startAt: entry.positionSecs));
 }
 
-/// Landscape card with a progress bar, for "Continue watching".
+/// "Continue watching" card: 16:9 artwork with a centred accent play ring
+/// and a progress line, then title + "38% · 1h 02m left" / "S2 · E3 — Title".
 class ContinueCard extends StatelessWidget {
   const ContinueCard({super.key, required this.entry, this.width = 280});
   final ContinueItem entry;
@@ -223,68 +388,71 @@ class ContinueCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final item = entry.item!;
-    final t = Theme.of(context).textTheme;
+    final left = entry.durationSecs == null ? null : entry.durationSecs! - entry.positionSecs;
     final subtitle = entry.kind == MediaKind.series && entry.season != null
-        ? 'S${entry.season} · E${entry.episode ?? '?'}${entry.episodeTitle != null ? ' · ${entry.episodeTitle}' : ''}'
-        : '${formatDuration(entry.positionSecs)} watched · ${(entry.progressPct).round()}%';
+        ? 'S${entry.season} · E${entry.episode ?? '?'}${entry.episodeTitle != null ? ' — ${entry.episodeTitle}' : ''}'
+        : '${entry.progressPct.round()}%${left != null && left > 0 ? ' · ${formatDuration(left)} left' : ''}';
     return SizedBox(
       width: width,
-      child: Hoverable(
-        radius: Radii.card,
+      child: GestureDetector(
         onTap: () => resumeEntry(context, entry),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(Radii.card),
-          child: AspectRatio(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          AspectRatio(
             aspectRatio: 16 / 9,
-            child: Stack(fit: StackFit.expand, children: [
-              NetImage(item.backdrop, label: item.name, memCacheWidth: 600),
-              const DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Colors.transparent, Color(0xE6000000)],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    stops: [0.35, 1],
+            child: HoverRing(
+              onTap: () => resumeEntry(context, entry),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(Radii.md),
+                child: Stack(fit: StackFit.expand, children: [
+                  NetImage(item.backdrop, label: item.name, memCacheWidth: 600),
+                  const Center(child: PlayRing()),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: ProgressLine(entry.progressPct / 100,
+                        height: 3, track: AppColors.text.withValues(alpha: 0.12)),
                   ),
-                ),
-              ),
-              Center(child: GlassIconButton(icon: Icons.play_arrow_rounded, size: 46, onTap: () => resumeEntry(context, entry))),
-              Positioned(
-                left: 12,
-                right: 12,
-                bottom: 12,
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: t.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
-                  Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: t.bodySmall?.copyWith(color: Colors.white70)),
-                  const SizedBox(height: 8),
-                  ProgressBar(entry.progressPct / 100),
                 ]),
               ),
-            ]),
+            ),
           ),
-        ),
+          const SizedBox(height: 6),
+          Text(item.name,
+              maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w500)),
+          Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: AppColors.muted)),
+        ]),
       ),
     );
   }
 }
 
+/// Round accent-outlined play glyph over artwork.
+class PlayRing extends StatelessWidget {
+  const PlayRing({super.key, this.size = 40});
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: AppColors.accent),
+          color: AppColors.bg.withValues(alpha: 0.5),
+        ),
+        child: Icon(PhF.play, size: size * 0.4, color: AppColors.accent),
+      );
+}
+
 class ProgressBar extends StatelessWidget {
-  const ProgressBar(this.value, {super.key, this.height = 4});
+  const ProgressBar(this.value, {super.key, this.height = 3});
   final double value;
   final double height;
 
   @override
-  Widget build(BuildContext context) => ClipRRect(
-        borderRadius: BorderRadius.circular(height),
-        child: LinearProgressIndicator(
-          value: value.clamp(0, 1),
-          minHeight: height,
-          backgroundColor: Colors.white24,
-          color: AppColors.accent,
-        ),
-      );
+  Widget build(BuildContext context) =>
+      ProgressLine(value, height: height, track: AppColors.text.withValues(alpha: 0.12));
 }
 
 /// Picks the right card for an item.
@@ -297,113 +465,4 @@ class MediaCard extends StatelessWidget {
   Widget build(BuildContext context) => item.kind == MediaKind.channel
       ? ChannelCard(item: item, width: width)
       : PosterCard(item: item, width: width);
-}
-
-/// One slide of the featured carousel: a rounded backdrop card with genre
-/// pills on top, title + actions at the bottom and a save button.
-class HeroCard extends ConsumerWidget {
-  const HeroCard({super.key, required this.item, this.compact = false});
-  final MediaItem item;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final t = Theme.of(context).textTheme;
-    ref.watch(favoritesProvider);
-    final saved = ref.read(favoritesProvider.notifier).contains(item.id);
-    final pills = <String>{
-      item.kind.label,
-      ...item.genres.take(3),
-      if (item.genres.isEmpty && item.group.isNotEmpty) item.group,
-    }.toList();
-    final details = [
-      if (item.year != null) '${item.year}',
-      if (item.durationSecs != null && item.durationSecs! > 0) formatDuration(item.durationSecs),
-    ];
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(Radii.hero),
-      child: Stack(fit: StackFit.expand, children: [
-        NetImage(item.backdrop, label: item.name),
-        const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Color(0x66000000), Colors.transparent, Color(0xE6000000)],
-              stops: [0, 0.35, 1],
-            ),
-          ),
-        ),
-        const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(colors: [Color(0x99000000), Colors.transparent], stops: [0, 0.65]),
-          ),
-        ),
-        Positioned(
-          top: compact ? 12 : 18,
-          left: compact ? 12 : 20,
-          right: 60,
-          child: Wrap(spacing: 6, runSpacing: 6, children: [for (final p in pills) Pill(p)]),
-        ),
-        Positioned(
-          top: compact ? 8 : 14,
-          right: compact ? 8 : 14,
-          child: GlassIconButton(
-            icon: saved ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-            color: saved ? AppColors.accent : Colors.white,
-            tooltip: saved ? 'Remove from My List' : 'Add to My List',
-            onTap: () => ref.read(favoritesProvider.notifier).toggle(item).catchError((_) {}),
-          ),
-        ),
-        Positioned(
-          left: compact ? 14 : 24,
-          right: compact ? 14 : 24,
-          bottom: compact ? 14 : 22,
-          child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-                Text(item.name, maxLines: 2, overflow: TextOverflow.ellipsis,
-                    style: (compact ? t.headlineSmall : t.headlineLarge)?.copyWith(height: 1.05)),
-                const SizedBox(height: 8),
-                Row(children: [
-                  if (item.rating != null && item.rating! > 0) ...[
-                    StarRating(item.rating!, size: 13),
-                    const SizedBox(width: 10),
-                  ],
-                  Text(details.join('  •  '), style: t.bodyMedium?.copyWith(color: Colors.white70)),
-                ]),
-                if (!compact && item.plot != null) ...[
-                  const SizedBox(height: 10),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 560),
-                    child: Text(item.plot!, maxLines: 2, overflow: TextOverflow.ellipsis,
-                        style: t.bodyMedium?.copyWith(color: Colors.white70, height: 1.45)),
-                  ),
-                ],
-                SizedBox(height: compact ? 12 : 16),
-                Row(children: [
-                  GradientButton(
-                    label: item.kind == MediaKind.movie ? 'Play' : 'Watch',
-                    icon: Icons.play_arrow_rounded,
-                    onPressed: () => playItem(context, item),
-                  ),
-                  const SizedBox(width: 10),
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      backgroundColor: Colors.black.withValues(alpha: 0.35),
-                      side: const BorderSide(color: Colors.white24),
-                    ),
-                    onPressed: () => openItem(context, item),
-                    icon: const Icon(Icons.info_outline_rounded, size: 20),
-                    label: Text(compact ? 'Info' : 'Details'),
-                  ),
-                ]),
-              ]),
-            ),
-          ]),
-        ),
-      ]),
-    );
-  }
 }

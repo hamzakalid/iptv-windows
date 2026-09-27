@@ -85,6 +85,12 @@ class MediaItem {
       .toList();
 
   bool get hasArtwork => logo != null || backdrop != null;
+
+  /// Provider channel number, when the playlist has one.
+  int? get number => jInt(raw['num']) ?? jInt(raw['number']) ?? jInt(raw['channelNumber']) ?? jInt(details?['num']);
+
+  /// Season count for series rows, when the provider sends it.
+  int? get seasonCount => jInt(details?['seasonCount']) ?? jInt(raw['seasonCount']) ?? jMap(details?['episodes'])?.length;
 }
 
 /// A recommended item plus the title that led to it ("Because you watched…").
