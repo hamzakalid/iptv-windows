@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/format.dart';
 import '../../core/icons.dart';
 import '../../core/theme.dart';
 import '../../models/media.dart';
 import '../../state/providers.dart';
-import '../../widgets/common.dart';
+import '../../widgets/nocturne.dart';
 import '../player/player_screen.dart';
 import 'detail_scaffold.dart';
 
@@ -34,12 +33,20 @@ class MovieDetailsScreen extends ConsumerWidget {
     final watched = progress?.completed == true || ref.watch(watchedIdsProvider).contains(item.id);
     final resumeAt = progress != null && !progress.completed && progress.positionSecs > 30 ? progress.positionSecs : null;
     final dur = d.durationSecs ?? progress?.durationSecs;
+    final resumeAt = !done && progress != null && progress.positionSecs > 30 ? progress.positionSecs : null;
+    final pct = resumeAt != null && dur != null && dur > 0 ? (resumeAt / dur).clamp(0.0, 1.0) : null;
+    final genres = item.genres.isNotEmpty
+        ? item.genres
+        : (d.genre ?? '').split(RegExp(r'[,/|]')).map((g) => g.trim()).where((g) => g.isNotEmpty).toList();
     final trailer = d.trailer;
+
+    void play(int startAt) => PlayerScreen.open(context, PlayerArgs.movie(item, startAt: startAt));
 
     void play(int startAt) => PlayerScreen.open(context, PlayerArgs.movie(item, startAt: startAt));
 
     return DetailScaffold(
       item: item,
+      kindLabel: 'Movie',
       loading: async.isLoading && async.value == null,
       meta: [
         if (item.year != null) Text('${item.year}'),

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'features/actor/actor_screen.dart';
+import 'features/actors/actors_screen.dart';
 import 'features/auth/login_screen.dart';
 import 'features/browse/browse_screen.dart';
 import 'features/details/movie_details_screen.dart';

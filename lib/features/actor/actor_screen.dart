@@ -4,11 +4,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/icons.dart';
 import '../../core/theme.dart';
 import '../../models/media.dart';
+import '../../models/media.dart';
 import '../../state/providers.dart';
 import '../../widgets/common.dart';
 import '../../widgets/paged_grid.dart';
 
-class ActorScreen extends ConsumerWidget {
+/// Actor page: photo, biography and dates from TMDB, then the user's movies
+/// and series with this actor as two separate sections.
+class ActorScreen extends ConsumerStatefulWidget {
   const ActorScreen({super.key, required this.id});
   final String id;
 

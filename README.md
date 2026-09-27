@@ -56,7 +56,7 @@ lib/
   data/                  ApiClient (Dio + bearer token) and IptvRepository (all endpoints)
   state/                 Riverpod providers: session, active playlist, home, favourites …
   widgets/               shared UI: cards, rows, paged grid, adaptive shell
-  features/              auth, home, browse, live, details, player, search, favorites, settings, actor
+  features/              auth, home, browse, live, details, player, search, favorites, settings, actor, actors
 test/models_test.dart    parsing tests against real backend payload shapes
 ```
 
@@ -65,5 +65,7 @@ test/models_test.dart    parsing tests against real backend payload shapes
 - **Cleartext HTTP is enabled** on Android (`usesCleartextTraffic`) and iOS (ATS `NSAllowsArbitraryLoads`), because most IPTV providers and LAN backends use plain `http://`.
 - The JWT is kept in the OS secure store (`flutter_secure_storage`); the server URL and the chosen playlist are kept in `shared_preferences`.
 - Sorting, rating/year filters and hydrated history need the backend from the same branch (`sort`, `minRating`, `yearFrom`/`yearTo` on list endpoints; `GET /watch-events?hydrate=1`). Older servers ignore the params, so lists stay unsorted and the History tab is empty.
+- The trending hero (`GET /home/featured`), the user-level rows (`GET /suggestions`), category counts (`items` on `/categories`) and the Actors page (`GET /actors` with counts, `/actors/:id` with separate movies/series) also come from that backend. Suggestions are built from your watch history across **all** your playlists, so they don't change when you switch the active playlist. The hero needs `TMDB_API_READ_TOKEN` on the server; without it (or before the first sync) it falls back to the best-rated and newest titles in the library.
+- Category pills and asides use the provider's order; alphabetical order is used only on older servers that don't send `items`.
 - The models accept both the shapes in `docs/API.md` and what the server sends today (for example, a flat series `episodes` array rather than a season-keyed map).
 - Branding lives in `lib/core/theme.dart` (`appName` and `AppColors`).

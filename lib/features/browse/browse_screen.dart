@@ -12,10 +12,11 @@ import '../../state/providers.dart';
 import '../../widgets/app_shell.dart';
 import '../../widgets/common.dart';
 import '../../widgets/media_cards.dart';
+import '../../widgets/nocturne.dart';
 import '../../widgets/paged_grid.dart';
 
-/// Catalogue browser shared by Movies, Series and Live TV: a searchable,
-/// category-filtered, sortable, infinitely scrolling grid.
+/// Movies / Series catalogue: genre aside, rating + sort filters, search and
+/// an infinitely scrolling poster grid.
 class BrowseScreen extends ConsumerStatefulWidget {
   const BrowseScreen({super.key, required this.kind});
   final MediaKind kind;
@@ -45,7 +46,12 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
 
   void _applyIntent() {
     final intent = ref.read(browseIntentProvider.notifier).take(widget.kind);
-    if (intent != null && mounted) setState(() => _group = intent.group);
+    if (intent != null && mounted) {
+      setState(() {
+        _group = intent.group;
+        if (intent.sort != null) _filter = _filter.copyWith(sort: intent.sort);
+      });
+    }
   }
 
   @override
@@ -58,7 +64,13 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
   void _onSearch(String v) {
     setState(() {}); // clear button visibility
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 350), () => setState(() => _query = v.trim()));
+    _debounce = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted || v.trim() == _query) return;
+      setState(() {
+        _query = v.trim();
+        _allTotal = null;
+      });
+    });
   }
 
   String get _title => switch (widget.kind) {
@@ -264,6 +276,7 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
                       _search.clear();
                       _onSearch('');
                     },
+                    child: const Padding(padding: EdgeInsets.all(6), child: Icon(Ph.x, size: 14)),
                   ),
           ),
         ),
@@ -355,10 +368,11 @@ class _CategoryChips extends StatelessWidget {
   final Categories cats;
   final String? selected;
   final ValueChanged<String?> onSelect;
+  final int? allCount;
 
   @override
   Widget build(BuildContext context) {
-    final entries = _entries(cats);
+    final entries = categoryEntries(cats);
     return SizedBox(
       height: 44,
       child: ListView.separated(
@@ -384,7 +398,7 @@ class _CategoryList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final entries = _entries(cats);
+    final entries = categoryEntries(cats);
     return SizedBox(
       width: 212,
       child: ListView.builder(

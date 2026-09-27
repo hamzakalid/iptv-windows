@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../core/icons.dart';
 import '../core/theme.dart';
+import 'nocturne.dart';
 
 /// Two-letter monogram for artwork fallbacks ("The Long Road" → "TL").
 String initials(String? label) => (label ?? '')
@@ -110,6 +111,7 @@ class LogoTile extends StatelessWidget {
 
 /// Pulsing block shown while content loads.
 class Skeleton extends StatefulWidget {
+  const Skeleton({super.key, this.width, this.height, this.radius = Radii.md});
   const Skeleton({super.key, this.width, this.height, this.radius = Radii.md});
   final double? width;
   final double? height;

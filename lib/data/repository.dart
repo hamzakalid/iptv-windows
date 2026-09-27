@@ -75,10 +75,8 @@ class IptvRepository {
     );
   }
 
-  Future<Categories> categories(MediaKind kind, {String? playlistId}) async {
-    final j = jMap(await api.get('${_path(kind)}/categories', query: {'playlistId': playlistId}))!;
-    return Categories(jStrList(j['categories']), jBool(j['hasUncategorized']));
-  }
+  Future<Categories> categories(MediaKind kind, {String? playlistId}) async =>
+      Categories.fromJson(jMap(await api.get('${_path(kind)}/categories', query: {'playlistId': playlistId}))!);
 
   Future<MediaItem> detail(MediaKind kind, String id) async =>
       MediaItem.fromJson(jMap(await api.get('${_path(kind)}/$id'))!, kind);
@@ -124,16 +122,42 @@ class IptvRepository {
     return page.items.firstOrNull;
   }
 
-  Future<(Actor, List<MediaItem>)> actor(String id) async {
-    final j = jMap(await api.get('/actors/$id'))!;
-    return (
-      Actor.fromJson(jMap(j['actor'])!),
-      [
-        ...MediaItem.list(j['movies'], MediaKind.movie),
-        ...MediaItem.list(j['series'], MediaKind.series),
-      ],
+  // ---- Actors --------------------------------------------------------------
+
+  /// Actors credited in the user's movies and series (any playlist).
+  Future<Paged<Actor>> actors({
+    String? q,
+    String sort = 'popularity',
+    bool withPhoto = false,
+    int offset = 0,
+    int limit = 60,
+  }) async {
+    final j = jMap(await api.get('/actors', query: {
+      'q': q,
+      'sort': sort == 'popularity' ? null : sort,
+      'withPhoto': withPhoto ? 1 : null,
+      'offset': offset,
+      'limit': limit,
+    }))!;
+    return Paged(
+      items: jMapList(j['items']).map(Actor.fromJson).toList(),
+      total: jInt(j['total']) ?? 0,
+      offset: jInt(j['offset']) ?? offset,
     );
   }
+
+  Future<ActorPage> actor(String id) async => ActorPage.fromJson(jMap(await api.get('/actors/$id'))!);
+
+  // ---- Discovery (user-level, not tied to the active playlist) -------------
+
+  /// Suggested / new / most watched / because-you-watched, from the user's
+  /// history across all playlists.
+  Future<Suggestions> suggestions({int limit = 24}) async =>
+      Suggestions.fromJson(jMap(await api.get('/suggestions', query: {'limit': limit}))!);
+
+  /// Hero slides: TMDB trending titles that exist in the catalogue.
+  Future<Featured> featured({int limit = 10}) async =>
+      Featured.fromJson(jMap(await api.get('/home/featured', query: {'limit': limit}))!);
 
   // ---- Watch progress ------------------------------------------------------
 

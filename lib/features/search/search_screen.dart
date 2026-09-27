@@ -8,6 +8,8 @@ import '../../core/icons.dart';
 import '../../core/theme.dart';
 import '../../models/account.dart';
 import '../../models/media.dart';
+import '../../models/account.dart';
+import '../../models/media.dart';
 import '../../state/providers.dart';
 import '../../widgets/app_shell.dart';
 import '../../widgets/common.dart';
@@ -50,6 +52,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   @override
   void dispose() {
     _controller.dispose();
+    _focus.dispose();
     _debounce?.cancel();
     _remember?.cancel();
     super.dispose();
@@ -83,6 +86,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(searchFocusRequestProvider, (_, _) => _focus.requestFocus());
+    final wide = context.isWide;
     final pad = context.pagePadding;
     final results = _q.isEmpty ? null : ref.watch(searchProvider(_q));
     final r = results?.value;

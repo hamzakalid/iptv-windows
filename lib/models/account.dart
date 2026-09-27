@@ -163,12 +163,55 @@ class Paged<T> {
   final int offset;
 }
 
+/// One provider category (Xtream `category_id`, or an M3U group) with its
+/// live item count.
+class CategoryInfo {
+  CategoryInfo({required this.id, required this.name, this.externalId = '', this.count = 0, this.order = 0});
+  final String id;
+  final String name;
+  final String externalId;
+  final int count;
+  final int order;
+
+  factory CategoryInfo.fromJson(Json j) => CategoryInfo(
+        id: jStr(j['id']) ?? jStr(j['name']) ?? '',
+        name: jStr(j['name']) ?? '',
+        externalId: jStr(j['externalId']) ?? '',
+        count: jInt(j['count']) ?? 0,
+        order: jInt(j['order']) ?? 0,
+      );
+}
+
+/// The IPTV account's categories for one kind. `names` is alphabetical (the
+/// legacy shape); `items` keeps the provider's order and carries counts.
 class Categories {
-  Categories(this.names, this.hasUncategorized);
+  Categories(this.names, this.hasUncategorized, {this.items = const [], this.total = 0, this.uncategorizedCount = 0});
   final List<String> names;
   final bool hasUncategorized;
+  final List<CategoryInfo> items;
+  final int total;
+  final int uncategorizedCount;
 
   static const uncategorized = '__uncategorized__';
+
+  factory Categories.fromJson(Json j) => Categories(
+        jStrList(j['categories']),
+        jBool(j['hasUncategorized']),
+        items: jMapList(j['items']).map(CategoryInfo.fromJson).where((c) => c.name.isNotEmpty).toList(),
+        total: jInt(j['total']) ?? 0,
+        uncategorizedCount: jInt(j['uncategorizedCount']) ?? 0,
+      );
+
+  /// Names in the provider's order (falls back to alphabetical on old servers).
+  List<String> get ordered => items.isEmpty ? names : items.map((c) => c.name).toList();
+
+  /// Items in a category; null when the server didn't send counts.
+  int? countFor(String? group) {
+    if (items.isEmpty && total == 0) return null;
+    if (group == null) return total == 0 ? null : total;
+    if (group == uncategorized) return uncategorizedCount;
+    return items.where((c) => c.name == group).firstOrNull?.count;
+  }
 }
 
 class SearchResults {

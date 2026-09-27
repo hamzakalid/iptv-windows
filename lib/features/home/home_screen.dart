@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -14,6 +15,8 @@ import '../../widgets/app_shell.dart';
 import '../../widgets/common.dart';
 import '../../widgets/media_cards.dart';
 import '../../widgets/media_row.dart';
+import '../../widgets/nocturne.dart';
+import '../actors/actors_screen.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -24,7 +27,9 @@ class HomeScreen extends ConsumerWidget {
     return Scaffold(
       body: RefreshIndicator(
         onRefresh: () async {
-          ref.invalidate(recommendationsProvider);
+          ref.invalidate(suggestionsProvider);
+          ref.invalidate(featuredProvider);
+          ref.invalidate(topActorsProvider);
           ref.invalidate(historyProvider);
           ref.invalidate(homeProvider);
           await ref.read(homeProvider.future);
@@ -128,6 +133,7 @@ class _Header extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final hour = DateTime.now().hour;
     final greeting = hour < 12 ? 'Good morning' : (hour < 18 ? 'Good afternoon' : 'Good evening');
     final wide = context.isWide;
@@ -204,7 +210,6 @@ class _Hero extends StatefulWidget {
 class _HeroState extends State<_Hero> {
   Timer? _timer;
   int _index = 0;
-  bool _hover = false;
 
   @override
   void initState() {
@@ -232,6 +237,10 @@ class _HeroState extends State<_Hero> {
 
   @override
   Widget build(BuildContext context) {
+    final items = widget.items;
+    if (_index >= items.length) _index = 0;
+    final slide = items[_index];
+    final item = slide.item;
     final wide = context.isWide;
     final item = widget.items[_index.clamp(0, widget.items.length - 1)];
     return MouseRegion(
@@ -399,8 +408,6 @@ class _HeroCopy extends ConsumerWidget {
 class _GenreBrowser extends ConsumerStatefulWidget {
   const _GenreBrowser({required this.poster, required this.height, required this.onSeeAll});
   final double poster;
-  final double height;
-  final ValueChanged<String?> onSeeAll;
 
   @override
   ConsumerState<_GenreBrowser> createState() => _GenreBrowserState();
@@ -411,12 +418,14 @@ class _GenreBrowserState extends ConsumerState<_GenreBrowser> {
 
   @override
   Widget build(BuildContext context) {
-    final cats = ref.watch(categoriesProvider(MediaKind.movie)).value?.names ?? const <String>[];
-    final labels = ['For you', ...cats];
+    final pad = context.pagePadding;
+    final cats = ref.watch(categoriesProvider(MediaKind.movie)).value;
+    final names = cats?.ordered ?? const <String>[];
+    final labels = ['For you', ...names];
     if (_selected >= labels.length) _selected = 0;
     final group = _selected == 0 ? null : labels[_selected];
 
-    final List<MediaItem> items;
+    final List<(MediaItem, String?)> items;
     final bool loading;
     String? reason;
     if (group == null) {
@@ -427,7 +436,7 @@ class _GenreBrowserState extends ConsumerState<_GenreBrowser> {
       reason = seeded?.reasonTitle ?? 'Based on what you watch';
     } else {
       final row = ref.watch(categoryRowProvider(group));
-      items = row.value ?? const [];
+      items = [for (final m in row.value ?? const <MediaItem>[]) (m, null)];
       loading = row.isLoading;
     }
 
@@ -492,6 +501,8 @@ class _HomeSkeleton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pad = context.pagePadding;
+    final wide = context.isWide;
+    final s = _sizes(context);
     return ListView(
       physics: const NeverScrollableScrollPhysics(),
       padding: const EdgeInsets.only(top: 24),

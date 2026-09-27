@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -10,6 +11,7 @@ import '../models/account.dart';
 import '../state/providers.dart';
 import 'common.dart';
 import 'media_cards.dart';
+import 'nocturne.dart';
 
 class _Dest {
   const _Dest(this.label, this.icon, this.selectedIcon);
@@ -51,15 +53,49 @@ class AppShell extends ConsumerWidget {
   final StatefulNavigationShell shell;
 
   @override
+  ConsumerState<AppShell> createState() => _AppShellState();
+}
+
+class _AppShellState extends ConsumerState<AppShell> {
+  @override
+  void initState() {
+    super.initState();
+    HardwareKeyboard.instance.addHandler(_onKey);
+  }
+
+  @override
+  void dispose() {
+    HardwareKeyboard.instance.removeHandler(_onKey);
+    super.dispose();
+  }
+
+  /// `/` anywhere outside a text field jumps to Search.
+  bool _onKey(KeyEvent e) {
+    if (e is! KeyDownEvent || e.character != '/') return false;
+    if (!mounted || !(ModalRoute.of(context)?.isCurrent ?? true)) return false;
+    final focused = FocusManager.instance.primaryFocus?.context;
+    if (focused != null &&
+        (focused.widget is EditableText || focused.findAncestorWidgetOfExactType<EditableText>() != null)) {
+      return false;
+    }
+    goSearch(context, ref);
+    return true;
+  }
+
+  @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (context.isWide) {
       return Scaffold(
         body: Row(children: [
           _Rail(shell: shell),
           Expanded(child: shell),
+          _Rail(shell: shell),
+          Expanded(child: shell),
         ]),
       );
     }
+    // Actors and Search have no tab on phones (reached from Home / the header).
+    final index = shell.currentIndex >= _mobileDests.length ? 0 : shell.currentIndex;
     return Scaffold(
       body: shell,
       bottomNavigationBar: DecoratedBox(
@@ -119,8 +155,11 @@ class AppKeys extends ConsumerWidget {
 
 // ---------------------------------------------------------------------------
 // Rail
+// Rail
 // ---------------------------------------------------------------------------
 
+class _Rail extends ConsumerWidget {
+  const _Rail({required this.shell});
 class _Rail extends ConsumerWidget {
   const _Rail({required this.shell});
   final StatefulNavigationShell shell;
@@ -396,7 +435,7 @@ class HeaderActions extends StatelessWidget {
   const HeaderActions({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (context.isWide) return const SizedBox.shrink();
     return const Row(mainAxisSize: MainAxisSize.min, children: [
       WhatsNewButton(),

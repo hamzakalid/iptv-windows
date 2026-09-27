@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
+import 'dart:math' as math;
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,6 +17,7 @@ import '../../core/format.dart';
 import '../../core/icons.dart';
 import '../../core/theme.dart';
 import '../../models/media.dart';
+import '../../state/playback.dart';
 import '../../state/providers.dart';
 import '../../widgets/common.dart';
 
@@ -98,6 +102,7 @@ class PlayerScreen extends ConsumerStatefulWidget {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No stream URL for this item.')));
       return;
     }
+    ProviderScope.containerOf(context, listen: false).read(playbackProvider.notifier).play(args);
     context.push('/player', extra: args);
   }
 
@@ -126,6 +131,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   String? _error;
   ChannelEpg? _epg;
   double _rate = 1;
+  Duration _duration = Duration.zero;
   Tracks _tracks = const Tracks();
   Track _track = const Track();
   int? _upNextSecs;
@@ -153,6 +159,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   @override
   void initState() {
     super.initState();
+    // Captured up front: `ref` can't be used inside dispose().
+    _container = ProviderScope.containerOf(context, listen: false);
+    _ctrl = _container.read(playbackProvider.notifier);
     if (_isMobile) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
       SystemChrome.setPreferredOrientations([DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]);
@@ -198,14 +207,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       if (p != null && !p.completed && p.positionSecs > 30) startAt = p.positionSecs;
     }
     if (!mounted) return;
-    setState(() {
-      _error = null;
-      _upNextSecs = null;
-      _upNextDismissed = false;
-    });
-    _countdown?.cancel();
-    await _player.open(Media(_args.url, start: startAt == null ? null : Duration(seconds: startAt)));
-    if (_rate != 1) await _player.setRate(_rate);
+    _ticks++;
+    final now = DateTime.now();
+    final idle = _playing && _panel == _Panel.none && now.difference(_lastMove) > _idleAfter;
+    final osdDone = _osdUntil != null && now.isAfter(_osdUntil!);
+    if (idle != _idle || osdDone || _ticks % 30 == 0) {
+      setState(() {
+        _idle = idle;
+        if (osdDone) _osdUntil = null;
+      });
+    }
   }
 
   Future<void> _loadEpg() async {

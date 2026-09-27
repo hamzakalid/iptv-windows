@@ -8,6 +8,7 @@ import '../../core/theme.dart';
 import '../../models/account.dart';
 import '../../state/providers.dart';
 import '../../widgets/common.dart';
+import '../../widgets/nocturne.dart';
 
 class AddPlaylistScreen extends ConsumerStatefulWidget {
   const AddPlaylistScreen({super.key});
@@ -219,12 +220,26 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
                   ),
                 ),
               ]),
-            ]),
+            ),
           ),
-        ),
+        ]),
       ),
     );
   }
+}
+
+/// `.field` — 12px label at 70% text above the input.
+class _Field extends StatelessWidget {
+  const _Field({required this.label, required this.child});
+  final String label;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text(label, style: TextStyle(fontSize: 12, color: AppColors.text.withValues(alpha: 0.7))),
+        const SizedBox(height: 5),
+        child,
+      ]);
 }
 
 class _TestResult extends StatelessWidget {
@@ -243,9 +258,8 @@ class _TestResult extends StatelessWidget {
         ('Connections', '${jInt(info['activeConnections']) ?? 0} / ${jInt(info['maxConnections'])}'),
       if (jInt(info['channels']) != null) ('Channels', '${jInt(info['channels'])}'),
     ];
-    final color = valid ? AppColors.success : AppColors.danger;
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.10),
@@ -259,9 +273,10 @@ class _TestResult extends StatelessWidget {
           Text(valid ? 'Connection successful' : 'Connection failed',
               style: const TextStyle(fontWeight: FontWeight.w500)),
         ]),
+        if (rows.isNotEmpty) const SizedBox(height: 4),
         for (final (k, v) in rows)
           Padding(
-            padding: const EdgeInsets.only(top: 8, left: 34),
+            padding: const EdgeInsets.only(top: 8),
             child: Row(children: [
               SizedBox(width: 110, child: Text(k, style: const TextStyle(color: AppColors.textMuted))),
               Expanded(child: Text(v, style: const TextStyle(fontWeight: FontWeight.w500))),

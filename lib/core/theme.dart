@@ -275,6 +275,7 @@ ThemeData buildTheme() {
       elevation: 0,
       margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.md)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.md)),
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
@@ -350,6 +351,7 @@ ThemeData buildTheme() {
           )),
     ),
     popupMenuTheme: PopupMenuThemeData(
+      color: AppColors.surface,
       color: AppColors.surface,
       surfaceTintColor: Colors.transparent,
       elevation: 10,

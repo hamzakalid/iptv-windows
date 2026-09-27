@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/icons.dart';
 import '../../core/theme.dart';
@@ -22,6 +24,7 @@ class DetailScaffold extends StatelessWidget {
   const DetailScaffold({
     super.key,
     required this.item,
+    required this.kindLabel,
     required this.meta,
     required this.actions,
     required this.sections,
@@ -34,6 +37,11 @@ class DetailScaffold extends StatelessWidget {
 
   /// Year, length and genre tags; rating is added automatically.
   final List<Widget> meta;
+  final String? plot;
+
+  /// 0–1 when partially watched; shows the progress row.
+  final double? progress;
+  final String? progressLabel;
   final List<Widget> actions;
   final List<Widget> sections;
 
@@ -51,7 +59,7 @@ class DetailScaffold extends StatelessWidget {
     final band = wide ? 300.0 : 220.0;
     final overlap = wide ? 190.0 : 120.0;
 
-    final titleBlock = Column(
+    final info = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -165,6 +173,7 @@ class _Poster extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         width: width,
         decoration: BoxDecoration(borderRadius: BorderRadius.circular(Radii.md), boxShadow: Shadows.md),
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(Radii.md), boxShadow: Shadows.md),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(Radii.md),
           child: AspectRatio(aspectRatio: 2 / 3, child: NetImage(item.logo, label: item.name, labelSize: 26)),
@@ -247,6 +256,7 @@ class DetailHeading extends StatelessWidget {
       );
 }
 
+/// Row of 72px actor circles (photo or initials) with the name underneath.
 class CastRow extends StatelessWidget {
   const CastRow({super.key, required this.actors});
   final List<Actor> actors;
