@@ -114,13 +114,15 @@ final whatsNewProvider = Provider<List<MediaItem>>((ref) {
 });
 
 /// A pending request from another screen to open Browse pre-filtered.
-final browseIntentProvider = NotifierProvider<BrowseIntent, ({MediaKind kind, String? group})?>(BrowseIntent.new);
+typedef BrowseRequest = ({MediaKind kind, String? group, SortOption? sort});
 
-class BrowseIntent extends Notifier<({MediaKind kind, String? group})?> {
+final browseIntentProvider = NotifierProvider<BrowseIntent, BrowseRequest?>(BrowseIntent.new);
+
+class BrowseIntent extends Notifier<BrowseRequest?> {
   @override
-  ({MediaKind kind, String? group})? build() => null;
-  void set(MediaKind kind, String? group) => state = (kind: kind, group: group);
-  ({MediaKind kind, String? group})? take(MediaKind kind) {
+  BrowseRequest? build() => null;
+  void set(MediaKind kind, String? group, {SortOption? sort}) => state = (kind: kind, group: group, sort: sort);
+  BrowseRequest? take(MediaKind kind) {
     final s = state;
     if (s == null || s.kind != kind) return null;
     state = null;

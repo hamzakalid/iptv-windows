@@ -10,10 +10,11 @@ import '../../state/providers.dart';
 import '../../widgets/app_shell.dart';
 import '../../widgets/common.dart';
 import '../../widgets/media_cards.dart';
+import '../../widgets/nocturne.dart';
 import '../../widgets/paged_grid.dart';
 
-/// Catalogue browser shared by Movies, Series and Live TV: a searchable,
-/// category-filtered, sortable, infinitely scrolling grid.
+/// Movies / Series catalogue: genre aside, rating + sort filters, search and
+/// an infinitely scrolling poster grid.
 class BrowseScreen extends ConsumerStatefulWidget {
   const BrowseScreen({super.key, required this.kind});
   final MediaKind kind;
@@ -29,8 +30,9 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
   final _search = TextEditingController();
   Timer? _debounce;
   bool _shuffling = false;
-
-  bool get _rated => widget.kind != MediaKind.channel;
+  int _loaded = 0;
+  int? _total;
+  int? _allTotal;
 
   @override
   void initState() {
@@ -41,7 +43,12 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
 
   void _applyIntent() {
     final intent = ref.read(browseIntentProvider.notifier).take(widget.kind);
-    if (intent != null && mounted) setState(() => _group = intent.group);
+    if (intent != null && mounted) {
+      setState(() {
+        _group = intent.group;
+        if (intent.sort != null) _filter = _filter.copyWith(sort: intent.sort);
+      });
+    }
   }
 
   @override
@@ -53,14 +60,21 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
 
   void _onSearch(String v) {
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 350), () => setState(() => _query = v.trim()));
+    _debounce = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted || v.trim() == _query) return;
+      setState(() {
+        _query = v.trim();
+        _allTotal = null;
+      });
+    });
   }
 
-  String get _title => switch (widget.kind) {
-        MediaKind.movie => 'Movies',
-        MediaKind.series => 'Series',
-        MediaKind.channel => 'Live TV',
-      };
+  void _setFilter(ListFilter f) => setState(() {
+        if (f.minRating != _filter.minRating) _allTotal = null;
+        _filter = f;
+      });
+
+  String get _title => widget.kind == MediaKind.series ? 'Series' : 'Movies';
 
   Future<void> _surprise() async {
     setState(() => _shuffling = true);
@@ -84,6 +98,12 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
     }
   }
 
+  void _onTotal(int loaded, int? total) => setState(() {
+        _loaded = loaded;
+        _total = total;
+        if (_group == null && total != null) _allTotal = total;
+      });
+
   @override
   Widget build(BuildContext context) {
     ref.listen(browseIntentProvider, (_, next) {
@@ -93,35 +113,57 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
     final repo = ref.watch(repositoryProvider);
     final cats = ref.watch(categoriesProvider(widget.kind)).value;
     final wide = context.isWide;
-    final pad = context.pagePadding;
+    final sorts = SortOption.values;
 
-    final header = Padding(
-      padding: EdgeInsets.fromLTRB(pad, 16, pad - (wide ? 0 : 8), 6),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Expanded(
-            child: Text(_group == null ? _title : '$_title · ${_label(_group!)}',
-                maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.headlineMedium),
-          ),
-          if (wide) SizedBox(width: 300, child: _searchField()) else const HeaderActions(),
-        ]),
-        if (!wide) ...[const SizedBox(height: 12), Padding(padding: const EdgeInsets.only(right: 8), child: _searchField())],
-        const SizedBox(height: 12),
-        _Toolbar(
-          filter: _filter,
-          rated: _rated,
-          shuffling: _shuffling,
-          onFilter: (f) => setState(() => _filter = f),
-          onSurprise: _surprise,
+    final caption = _total == null
+        ? '…'
+        : '$_loaded of $_total${_group == null ? '' : ' · ${categoryLabel(_group!)}'}';
+
+    final header = CatalogHeader(
+      title: _title,
+      caption: caption,
+      controlsWidth: 790,
+      search: CatalogSearchField(
+        controller: _search,
+        hint: 'Search ${_title.toLowerCase()}',
+        width: 240,
+        onChanged: _onSearch,
+      ),
+      controls: [
+        Seg<double?>(
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+          options: [
+            const SegOption(null, 'Any'),
+            for (final r in const [6.0, 7.0, 8.0]) SegOption(r, '${r.toInt()}+', icon: PhF.star),
+          ],
+          value: _filter.minRating,
+          onChanged: (v) => _setFilter(_filter.copyWith(minRating: () => v)),
         ),
-      ]),
+        NocButton(
+          label: _filter.sort.label,
+          icon: Ph.sortAscending,
+          tooltip: 'Change sort order',
+          onPressed: () => _setFilter(_filter.copyWith(sort: sorts[(sorts.indexOf(_filter.sort) + 1) % sorts.length])),
+        ),
+        NocButton(
+          label: 'Surprise me',
+          icon: Ph.shuffle,
+          tooltip: 'Pick something at random',
+          onPressed: _shuffling ? null : _surprise,
+        ),
+      ],
     );
 
     final grid = PagedMediaGrid(
       queryKey: (playlistId, _group, _query, _filter, repo),
-      kind: widget.kind,
-      emptyTitle: _query.isEmpty ? 'No ${_title.toLowerCase()} match these filters' : 'No results for "$_query"',
-      header: wide || cats == null ? null : _CategoryChips(cats: cats, selected: _group, onSelect: _select),
+      minItemWidth: wide ? 150 : 105,
+      padding: wide ? const EdgeInsets.fromLTRB(12, 4, 24, 32) : const EdgeInsets.fromLTRB(16, 4, 16, 32),
+      emptyMessage: 'Nothing matches these filters.',
+      onTotal: _onTotal,
+      headerSlivers: [
+        if (!wide && cats != null)
+          SliverToBoxAdapter(child: CategoryChips(cats: cats, selected: _group, onSelect: _select)),
+      ],
       fetch: (offset) => repo.list(widget.kind,
           playlistId: playlistId, group: _group, q: _query, filter: _filter, offset: offset),
     );
@@ -134,7 +176,13 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
           Expanded(
             child: wide && cats != null
                 ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    _CategoryList(cats: cats, selected: _group, onSelect: _select),
+                    CategoryAside(
+                      title: 'Genres',
+                      cats: cats,
+                      selected: _group,
+                      allCount: _allTotal,
+                      onSelect: _select,
+                    ),
                     Expanded(child: grid),
                   ])
                 : grid,
@@ -145,168 +193,192 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
   }
 
   void _select(String? g) => setState(() => _group = g);
+}
 
-  Widget _searchField() => SizedBox(
-        height: 42,
+// ---------------------------------------------------------------------------
+// Pieces shared with Live TV
+// ---------------------------------------------------------------------------
+
+String categoryLabel(String g) => g == Categories.uncategorized ? 'Uncategorized' : g;
+
+List<String?> categoryEntries(Categories c) => [null, ...c.names, if (c.hasUncategorized) Categories.uncategorized];
+
+/// Page header: title + caption on the left, search and controls on the
+/// right (desktop, bottom-aligned, wrapping when tight); stacked on phones.
+class CatalogHeader extends StatelessWidget {
+  const CatalogHeader({
+    super.key,
+    required this.title,
+    required this.caption,
+    required this.search,
+    required this.controls,
+    required this.controlsWidth,
+    this.gap = 12,
+  });
+
+  final String title;
+  final String caption;
+  final Widget search;
+  final List<Widget> controls;
+
+  /// Rough width of search + controls, to decide when to wrap.
+  final double controlsWidth;
+  final double gap;
+
+  @override
+  Widget build(BuildContext context) {
+    final titleBlock = PageTitle(title, caption: caption);
+    if (!context.isWide) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 8, 10),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(children: [Expanded(child: titleBlock), const HeaderActions()]),
+          const SizedBox(height: 12),
+          Padding(padding: const EdgeInsets.only(right: 8), child: search),
+          const SizedBox(height: 10),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(children: [
+              for (final (i, c) in controls.indexed) ...[if (i > 0) SizedBox(width: gap - 4), c],
+            ]),
+          ),
+        ]),
+      );
+    }
+    final all = [search, ...controls];
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 20, 24, 14),
+      child: LayoutBuilder(builder: (context, c) {
+        if (c.maxWidth - controlsWidth >= 200) {
+          return Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Expanded(child: titleBlock),
+            for (final w in all) ...[SizedBox(width: gap), w],
+          ]);
+        }
+        return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          titleBlock,
+          const SizedBox(height: 12),
+          Wrap(spacing: gap, runSpacing: 10, crossAxisAlignment: WrapCrossAlignment.center, children: all),
+        ]);
+      }),
+    );
+  }
+}
+
+/// `.input` with a magnifying-glass prefix and a clear button.
+class CatalogSearchField extends StatefulWidget {
+  const CatalogSearchField({
+    super.key,
+    required this.controller,
+    required this.hint,
+    required this.onChanged,
+    this.width,
+  });
+
+  final TextEditingController controller;
+  final String hint;
+  final ValueChanged<String> onChanged;
+  final double? width;
+
+  @override
+  State<CatalogSearchField> createState() => _CatalogSearchFieldState();
+}
+
+class _CatalogSearchFieldState extends State<CatalogSearchField> {
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width: context.isWide ? widget.width : null,
+        height: 36,
         child: TextField(
-          controller: _search,
-          onChanged: _onSearch,
+          controller: widget.controller,
+          onChanged: (v) {
+            setState(() {});
+            widget.onChanged(v);
+          },
+          style: const TextStyle(fontSize: 14),
           decoration: InputDecoration(
-            hintText: 'Search ${_title.toLowerCase()}',
-            prefixIcon: const Icon(Icons.search_rounded, size: 20),
-            isDense: true,
-            contentPadding: const EdgeInsets.symmetric(vertical: 10),
-            suffixIcon: _search.text.isEmpty
+            hintText: widget.hint,
+            prefixIcon: const Icon(Ph.magnifyingGlass, size: 16),
+            prefixIconConstraints: const BoxConstraints(minWidth: 32, minHeight: 34),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+            suffixIconConstraints: const BoxConstraints(minWidth: 32, minHeight: 34),
+            suffixIcon: widget.controller.text.isEmpty
                 ? null
-                : IconButton(
-                    icon: const Icon(Icons.close_rounded, size: 18),
-                    onPressed: () {
-                      _search.clear();
-                      _onSearch('');
+                : Tappable(
+                    radius: Radii.sm,
+                    onTap: () {
+                      widget.controller.clear();
+                      setState(() {});
+                      widget.onChanged('');
                     },
+                    child: const Padding(padding: EdgeInsets.all(6), child: Icon(Ph.x, size: 14)),
                   ),
           ),
         ),
       );
 }
 
-/// Sort menu, rating pills and the "Surprise me" shuffle.
-class _Toolbar extends StatelessWidget {
-  const _Toolbar({
-    required this.filter,
-    required this.rated,
-    required this.shuffling,
-    required this.onFilter,
-    required this.onSurprise,
+/// 200px aside: overline + category rows. Only "All" carries a count —
+/// the API has no per-category totals.
+class CategoryAside extends StatelessWidget {
+  const CategoryAside({
+    super.key,
+    required this.title,
+    required this.cats,
+    required this.selected,
+    required this.onSelect,
+    this.allCount,
   });
 
-  final ListFilter filter;
-  final bool rated;
-  final bool shuffling;
-  final ValueChanged<ListFilter> onFilter;
-  final VoidCallback onSurprise;
-
-  @override
-  Widget build(BuildContext context) {
-    final wide = context.isWide;
-    final sorts = rated ? SortOption.values : [SortOption.recent, SortOption.name];
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(children: [
-        PopupMenuButton<SortOption>(
-          tooltip: 'Sort',
-          initialValue: filter.sort,
-          onSelected: (s) => onFilter(filter.copyWith(sort: s)),
-          itemBuilder: (_) => [
-            for (final s in sorts)
-              PopupMenuItem(
-                value: s,
-                child: Row(children: [
-                  Icon(s == filter.sort ? Icons.check_rounded : null, size: 18),
-                  const SizedBox(width: 8),
-                  Text(s.label),
-                ]),
-              ),
-          ],
-          child: Pill(filter.sort.label, icon: Icons.swap_vert_rounded),
-        ),
-        if (rated) ...[
-          const SizedBox(width: 14),
-          for (final (label, value) in [('Any rating', null), ('6+', 6.0), ('7+', 7.0), ('8+', 8.0)])
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Pill(
-                label,
-                icon: value == null ? null : Icons.star_rounded,
-                selected: filter.minRating == value,
-                onTap: () => onFilter(filter.copyWith(minRating: () => value)),
-              ),
-            ),
-        ],
-        const SizedBox(width: 6),
-        Tooltip(
-          message: 'Pick something at random',
-          child: Pill(
-            wide ? 'Surprise me' : 'Random',
-            icon: shuffling ? Icons.hourglass_top_rounded : Icons.casino_rounded,
-            onTap: shuffling ? null : onSurprise,
-          ),
-        ),
-      ]),
-    );
-  }
-}
-
-String _label(String g) => g == Categories.uncategorized ? 'Uncategorized' : g;
-
-List<String?> _entries(Categories c) => [null, ...c.names, if (c.hasUncategorized) Categories.uncategorized];
-
-class _CategoryChips extends StatelessWidget {
-  const _CategoryChips({required this.cats, required this.selected, required this.onSelect});
+  final String title;
   final Categories cats;
   final String? selected;
   final ValueChanged<String?> onSelect;
+  final int? allCount;
 
   @override
   Widget build(BuildContext context) {
-    final entries = _entries(cats);
+    final entries = categoryEntries(cats);
     return SizedBox(
-      height: 52,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.symmetric(horizontal: context.pagePadding, vertical: 8),
-        itemCount: entries.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
+      width: 200,
+      child: ListView.builder(
+        padding: const EdgeInsets.fromLTRB(24, 4, 12, 24),
+        itemCount: entries.length + 1,
         itemBuilder: (_, i) {
-          final g = entries[i];
-          return Pill(g == null ? 'All' : _label(g), selected: g == selected, onTap: () => onSelect(g));
+          if (i == 0) return Overline(title, padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6));
+          final g = entries[i - 1];
+          return SideListItem(
+            label: g == null ? 'All' : categoryLabel(g),
+            count: g == null && allCount != null ? '$allCount' : null,
+            selected: g == selected,
+            onTap: () => onSelect(g),
+          );
         },
       ),
     );
   }
 }
 
-class _CategoryList extends StatelessWidget {
-  const _CategoryList({required this.cats, required this.selected, required this.onSelect});
+/// Phone replacement for the aside: a scrolling row of pills.
+class CategoryChips extends StatelessWidget {
+  const CategoryChips({super.key, required this.cats, required this.selected, required this.onSelect});
   final Categories cats;
   final String? selected;
   final ValueChanged<String?> onSelect;
 
   @override
   Widget build(BuildContext context) {
-    final entries = _entries(cats);
+    final entries = categoryEntries(cats);
     return SizedBox(
-      width: 232,
-      child: ListView.builder(
-        padding: EdgeInsets.fromLTRB(context.pagePadding, 8, 8, 24),
+      height: 52,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
         itemCount: entries.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (_, i) {
           final g = entries[i];
-          final isSel = g == selected;
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 2),
-            child: Material(
-              color: isSel ? AppColors.surfaceHover : Colors.transparent,
-              borderRadius: BorderRadius.circular(10),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(10),
-                hoverColor: AppColors.surfaceHigh,
-                onTap: () => onSelect(g),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  child: Text(
-                    g == null ? 'All' : _label(g),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: isSel ? AppColors.text : AppColors.textMuted,
-                      fontWeight: isSel ? FontWeight.w700 : FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          );
+          return Pill(g == null ? 'All' : categoryLabel(g), selected: g == selected, onTap: () => onSelect(g));
         },
       ),
     );

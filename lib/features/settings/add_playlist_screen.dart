@@ -7,6 +7,7 @@ import '../../core/theme.dart';
 import '../../models/account.dart';
 import '../../state/providers.dart';
 import '../../widgets/common.dart';
+import '../../widgets/nocturne.dart';
 
 class AddPlaylistScreen extends ConsumerStatefulWidget {
   const AddPlaylistScreen({super.key});
@@ -97,123 +98,171 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final t = Theme.of(context).textTheme;
+    final pad = context.pagePadding;
+    const gap = SizedBox(height: 14);
     return Scaffold(
-      appBar: AppBar(title: const Text('Add playlist')),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
-          child: Form(
-            key: _form,
-            child: ListView(padding: EdgeInsets.all(context.pagePadding), children: [
-              SegmentedButton<PlaylistType>(
-                segments: const [
-                  ButtonSegment(value: PlaylistType.xtream, icon: Icon(Icons.dns_rounded), label: Text('Xtream Codes')),
-                  ButtonSegment(value: PlaylistType.m3u, icon: Icon(Icons.link_rounded), label: Text('M3U URL')),
-                ],
-                selected: {_type},
-                onSelectionChanged: (s) => setState(() {
-                  _type = s.first;
-                  _testResult = null;
-                  _error = null;
-                }),
+      body: SafeArea(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Padding(
+            padding: EdgeInsets.fromLTRB(pad - 8, 20, pad, 14),
+            child: Row(children: [
+              NocIconButton(
+                icon: Ph.arrowLeft,
+                tooltip: 'Back',
+                onPressed: () => context.canPop() ? context.pop() : context.go('/settings'),
               ),
-              const SizedBox(height: 8),
-              Text(
-                _type == PlaylistType.xtream
-                    ? 'Recommended. Unlocks EPG, movie details, cast and episode lists.'
-                    : 'Any .m3u / .m3u8 playlist link from your provider.',
-                style: t.bodySmall?.copyWith(color: AppColors.textMuted),
-              ),
-              const SizedBox(height: 24),
-              TextFormField(
-                controller: _name,
-                decoration: const InputDecoration(
-                  labelText: 'Name (optional)',
-                  prefixIcon: Icon(Icons.label_outline_rounded),
-                ),
-              ),
-              const SizedBox(height: 14),
-              if (_type == PlaylistType.m3u)
-                TextFormField(
-                  controller: _url,
-                  keyboardType: TextInputType.url,
-                  validator: _urlValidator,
-                  decoration: const InputDecoration(
-                    labelText: 'Playlist URL',
-                    hintText: 'https://provider.com/get.php?…',
-                    prefixIcon: Icon(Icons.link_rounded),
-                  ),
-                )
-              else ...[
-                TextFormField(
-                  controller: _server,
-                  keyboardType: TextInputType.url,
-                  validator: _urlValidator,
-                  decoration: const InputDecoration(
-                    labelText: 'Server URL',
-                    hintText: 'http://provider.com:8080',
-                    prefixIcon: Icon(Icons.dns_outlined),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                TextFormField(
-                  controller: _user,
-                  validator: _required,
-                  decoration: const InputDecoration(labelText: 'Username', prefixIcon: Icon(Icons.person_outline)),
-                ),
-                const SizedBox(height: 14),
-                TextFormField(
-                  controller: _pass,
-                  obscureText: true,
-                  validator: _required,
-                  decoration: const InputDecoration(labelText: 'Password', prefixIcon: Icon(Icons.lock_outline)),
-                ),
-              ],
-              const SizedBox(height: 20),
-              if (_testResult != null) _TestResult(result: _testResult!),
-              if (_error != null)
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: AppColors.danger.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: AppColors.danger.withValues(alpha: 0.4)),
-                  ),
-                  child: Row(children: [
-                    const Icon(Icons.error_outline_rounded, color: AppColors.danger),
-                    const SizedBox(width: 10),
-                    Expanded(child: Text(_error!)),
-                  ]),
-                ),
-              Row(children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _testing || _saving ? null : _test,
-                    icon: _testing
-                        ? const SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.network_check_rounded),
-                    label: const Text('Test'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
-                  child: GradientButton(
-                    label: 'Save playlist',
-                    icon: Icons.check_rounded,
-                    loading: _saving,
-                    onPressed: _testing ? null : _save,
+              const SizedBox(width: 6),
+              const Expanded(child: PageTitle('Add playlist', caption: 'Connect an IPTV source to your account')),
+            ]),
+          ),
+          Expanded(
+            child: Form(
+              key: _form,
+              child: ListView(padding: EdgeInsets.fromLTRB(pad, 6, pad, 32), children: [
+                Align(
+                  alignment: Alignment.topLeft,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 520),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      const Overline('Source type', padding: EdgeInsets.only(bottom: 8)),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Seg<PlaylistType>(
+                          options: const [
+                            SegOption(PlaylistType.xtream, 'Xtream Codes', icon: Ph.hardDrives),
+                            SegOption(PlaylistType.m3u, 'M3U URL', icon: Ph.link),
+                          ],
+                          value: _type,
+                          onChanged: (t) => setState(() {
+                            _type = t;
+                            _testResult = null;
+                            _error = null;
+                          }),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _type == PlaylistType.xtream
+                            ? 'Recommended. Unlocks EPG, movie details, cast and episode lists.'
+                            : 'Any .m3u / .m3u8 playlist link from your provider.',
+                        style: NocText.muted,
+                      ),
+                      const SizedBox(height: 24),
+                      const Overline('Details', padding: EdgeInsets.only(bottom: 10)),
+                      _Field(
+                        label: 'Name (optional)',
+                        child: TextFormField(
+                          controller: _name,
+                          decoration: const InputDecoration(
+                            hintText: 'My provider',
+                            prefixIcon: Icon(Ph.tag, size: 16),
+                          ),
+                        ),
+                      ),
+                      gap,
+                      if (_type == PlaylistType.m3u)
+                        _Field(
+                          label: 'Playlist URL',
+                          child: TextFormField(
+                            controller: _url,
+                            keyboardType: TextInputType.url,
+                            validator: _urlValidator,
+                            decoration: const InputDecoration(
+                              hintText: 'https://provider.com/get.php?…',
+                              prefixIcon: Icon(Ph.link, size: 16),
+                            ),
+                          ),
+                        )
+                      else ...[
+                        _Field(
+                          label: 'Server URL',
+                          child: TextFormField(
+                            controller: _server,
+                            keyboardType: TextInputType.url,
+                            validator: _urlValidator,
+                            decoration: const InputDecoration(
+                              hintText: 'http://provider.com:8080',
+                              prefixIcon: Icon(Ph.hardDrives, size: 16),
+                            ),
+                          ),
+                        ),
+                        gap,
+                        _Field(
+                          label: 'Username',
+                          child: TextFormField(
+                            controller: _user,
+                            validator: _required,
+                            decoration: const InputDecoration(prefixIcon: Icon(Ph.user, size: 16)),
+                          ),
+                        ),
+                        gap,
+                        _Field(
+                          label: 'Password',
+                          child: TextFormField(
+                            controller: _pass,
+                            obscureText: true,
+                            validator: _required,
+                            decoration: const InputDecoration(prefixIcon: Icon(Ph.lock, size: 16)),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 20),
+                      if (_testResult != null) _TestResult(result: _testResult!),
+                      if (_error != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            const Padding(
+                              padding: EdgeInsets.only(top: 1),
+                              child: Icon(Ph.warningCircle, size: 16, color: AppColors.danger),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(_error!,
+                                  style: TextStyle(
+                                      fontSize: 13, height: 1.4, color: AppColors.danger.withValues(alpha: 0.9))),
+                            ),
+                          ]),
+                        ),
+                      Row(children: [
+                        NocButton(
+                          label: _testing ? 'Testing…' : 'Test connection',
+                          icon: Ph.plugsConnected,
+                          height: 38,
+                          onPressed: _testing || _saving ? null : _test,
+                        ),
+                        const SizedBox(width: 8),
+                        GradientButton(
+                          label: 'Save playlist',
+                          icon: Ph.check,
+                          loading: _saving,
+                          onPressed: _testing ? null : _save,
+                        ),
+                      ]),
+                    ]),
                   ),
                 ),
               ]),
-            ]),
+            ),
           ),
-        ),
+        ]),
       ),
     );
   }
+}
+
+/// `.field` — 12px label at 70% text above the input.
+class _Field extends StatelessWidget {
+  const _Field({required this.label, required this.child});
+  final String label;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text(label, style: TextStyle(fontSize: 12, color: AppColors.text.withValues(alpha: 0.7))),
+        const SizedBox(height: 5),
+        child,
+      ]);
 }
 
 class _TestResult extends StatelessWidget {
@@ -232,28 +281,36 @@ class _TestResult extends StatelessWidget {
         ('Connections', '${jInt(info['activeConnections']) ?? 0} / ${jInt(info['maxConnections'])}'),
       if (jInt(info['channels']) != null) ('Channels', '${jInt(info['channels'])}'),
     ];
-    final color = valid ? AppColors.success : AppColors.danger;
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withValues(alpha: 0.4)),
-      ),
+      decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(Radii.md)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Icon(valid ? Icons.check_circle_rounded : Icons.cancel_rounded, color: color),
+          NocTag(
+            valid ? 'Connected' : 'Failed',
+            kind: valid ? TagKind.accent : TagKind.neutral,
+            icon: valid ? Ph.checkCircle : Ph.xCircle,
+          ),
           const SizedBox(width: 10),
-          Text(valid ? 'Connection successful' : 'Connection failed',
-              style: const TextStyle(fontWeight: FontWeight.w700)),
+          Expanded(
+            child: Text(valid ? 'Connection successful' : 'Connection failed',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: valid ? AppColors.muted : AppColors.danger.withValues(alpha: 0.9),
+                )),
+          ),
         ]),
+        if (rows.isNotEmpty) const SizedBox(height: 4),
         for (final (k, v) in rows)
           Padding(
-            padding: const EdgeInsets.only(top: 8, left: 34),
+            padding: const EdgeInsets.only(top: 8),
             child: Row(children: [
-              SizedBox(width: 110, child: Text(k, style: const TextStyle(color: AppColors.textMuted))),
-              Expanded(child: Text(v, style: const TextStyle(fontWeight: FontWeight.w600))),
+              SizedBox(width: 110, child: Text(k, style: TextStyle(fontSize: 13, color: AppColors.muted))),
+              Expanded(
+                child: Text(v,
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, fontFeatures: NocText.tabular)),
+              ),
             ]),
           ),
       ]),

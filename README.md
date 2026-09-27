@@ -4,13 +4,15 @@ One Flutter codebase for **Android, iOS and Windows** that talks to
 [`app-iptv-backend`](https://github.com/hamzakalid/app-iptv-backend).
 
 - **Home**: featured carousel of rounded cards (genre pills, rating, save-to-list), a category strip that drives the row beneath it ("For you", Action, Drama, …), *Because you watched …* rows, Live now, Top rated, New movies and New series
-- **Desktop shell**: persistent top bar with scoped search (All / Movies / Series / Live TV), a *what's new* bell listing titles added since your last visit, a profile menu to switch playlists, and a sidebar with **Continue Watching** thumbnails
+- **Design**: the Nocturne design system — blue-grey ground, Inter, one blurple accent used as outlines and glows, Phosphor icons
+- **Desktop shell**: a slim icon rail (Home, Movies, Series, Live TV, Library, Search, Settings, profile/playlist switcher); press `/` anywhere to search
 - **Movies / Series / Live TV**: infinite-scroll grids with category filters, **sort** (recently added, top rated, release year, A–Z), **minimum rating** pills, and a **Surprise me** shuffle that picks a random title matching the current filters
 - **Details**: cinematic header, resume/restart, My List, trailer, cast (tap through to the actor's page), "More like this", season and episode picker
 - **Library**: My List (favourites) and **History** with progress, "watched" ticks and one-tap resume; finished movies get a ✓ badge on every poster
-- **Player**: [`media_kit`](https://pub.dev/packages/media_kit) (libmpv) plays HLS, MPEG-TS and MP4 on every platform. Resumes from your last position, reports progress every 15 s, shows the live EPG ("Now: …"), playback **speed**, **audio & subtitle** track selection, and an **Up next** countdown that auto-plays the following episode
+- **Live TV**: category list, recently watched channels, All / Favourites, sort, and channel cards with what's on now, progress and what's next
+- **Player**: [`media_kit`](https://pub.dev/packages/media_kit) (libmpv) with custom controls. Live: ↑/↓ channel zapping with an on-screen banner, channel list (`C`), mini guide (`G`). Series: episode drawer (`E`), **Up next** countdown. Audio, subtitles and speed (`S`), **picture-in-picture** (`P`) that keeps playing while you browse, and a shortcut sheet (`?`). Resumes from your last position and reports progress every 15 s
 - **Playlists**: add Xtream Codes or M3U with **Test connection**, see live sync status, re-sync, switch or delete
-- **Adaptive layout**: bottom navigation on phones; sidebar + top bar on tablets and Windows, with hover previews on posters and paging arrows on rows
+- **Adaptive layout**: bottom navigation on phones; the icon rail on tablets and Windows, with hover rings on cards and paging arrows on rows
 
 ## Run it
 

@@ -135,10 +135,13 @@ String epgTime(EpgEntry e) => '${formatClock(e.start)} – ${formatClock(e.end)}
 /// Live TV grid card: 16:8 logo area with number, favourite star and a
 /// "Playing" tag, then name + group, what's on now, progress and next.
 class ChannelCard extends ConsumerWidget {
-  const ChannelCard({super.key, required this.item, this.width, this.showEpg = true});
+  const ChannelCard({super.key, required this.item, this.width, this.showEpg = true, this.onTap});
   final MediaItem item;
   final double? width;
   final bool showEpg;
+
+  /// Defaults to playing the channel on its own.
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -154,7 +157,7 @@ class ChannelCard extends ConsumerWidget {
       width: width,
       child: HoverRing(
         active: playing,
-        onTap: () => openItem(context, item),
+        onTap: onTap ?? () => openItem(context, item),
         child: Container(
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(Radii.md)),
