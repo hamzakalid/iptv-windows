@@ -56,6 +56,7 @@ class IptvRepository {
     String? playlistId,
     String? group,
     String? q,
+    ListFilter filter = const ListFilter(),
     int offset = 0,
     int limit = 60,
   }) async {
@@ -63,6 +64,7 @@ class IptvRepository {
       'playlistId': playlistId,
       'group': group,
       'q': q,
+      ...filter.toQuery(),
       'offset': offset,
       'limit': limit,
     }))!;
@@ -100,12 +102,26 @@ class IptvRepository {
     );
   }
 
-  Future<List<MediaItem>> recommendations({String? playlistId}) async {
-    final j = jMap(await api.get('/recommendations', query: {'playlistId': playlistId, 'limit': 20}))!;
-    return jMapList(j['items'])
-        .where((r) => jMap(r['content']) != null)
-        .map((r) => MediaItem.fromJson(jMap(r['content'])!, MediaKind.parse(r['type'])))
-        .toList();
+  Future<List<Recommendation>> recommendations({String? playlistId}) async {
+    final j = jMap(await api.get('/recommendations', query: {'playlistId': playlistId, 'limit': 40}))!;
+    return jMapList(j['items']).where((r) => jMap(r['content']) != null).map(Recommendation.fromJson).toList();
+  }
+
+  /// A random item matching the same scope as a list, for "Surprise me".
+  Future<MediaItem?> random(
+    MediaKind kind, {
+    String? playlistId,
+    String? group,
+    ListFilter filter = const ListFilter(),
+    int total = 0,
+  }) async {
+    if (total <= 0) {
+      total = (await list(kind, playlistId: playlistId, group: group, filter: filter, limit: 1)).total;
+      if (total == 0) return null;
+    }
+    final offset = DateTime.now().microsecondsSinceEpoch % total;
+    final page = await list(kind, playlistId: playlistId, group: group, filter: filter, offset: offset, limit: 1);
+    return page.items.firstOrNull;
   }
 
   Future<(Actor, List<MediaItem>)> actor(String id) async {
@@ -140,6 +156,11 @@ class IptvRepository {
         'positionSecs': ?positionSecs,
         'durationSecs': ?durationSecs,
       });
+
+  Future<List<WatchEvent>> history({int limit = 100}) async {
+    final j = jMap(await api.get('/watch-events', query: {'limit': limit, 'hydrate': 1}))!;
+    return jMapList(j['events']).map(WatchEvent.fromJson).toList();
+  }
 
   Future<WatchProgress?> progressFor(String contentId, {String? episodeId}) async {
     try {

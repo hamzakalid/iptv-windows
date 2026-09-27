@@ -12,6 +12,7 @@ import '../../core/format.dart';
 import '../../core/theme.dart';
 import '../../models/media.dart';
 import '../../state/providers.dart';
+import '../../widgets/common.dart';
 
 /// Everything the player needs. Series pass the whole season as a queue so
 /// "next episode" works without another request.
@@ -35,6 +36,7 @@ class PlayerArgs {
   final int queueIndex;
 
   Episode? get episode => queue.isEmpty ? null : queue[queueIndex];
+  Episode? get nextEpisode => queueIndex < queue.length - 1 ? queue[queueIndex + 1] : null;
   bool get isLive => item.kind == MediaKind.channel;
 
   factory PlayerArgs.movie(MediaItem m, {int? startAt}) =>
@@ -72,15 +74,24 @@ class PlayerScreen extends ConsumerStatefulWidget {
   ConsumerState<PlayerScreen> createState() => _PlayerScreenState();
 }
 
+const _speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+const _upNextWindow = Duration(seconds: 20);
+const _upNextCountdown = 10;
+
 class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   late final _player = Player();
   late final _video = VideoController(_player);
   late PlayerArgs _args = widget.args;
   Timer? _reporter;
-  StreamSubscription<bool>? _completedSub;
-  StreamSubscription<String>? _errorSub;
+  Timer? _countdown;
+  final _subs = <StreamSubscription<dynamic>>[];
   String? _error;
   EpgEntry? _now;
+  double _rate = 1;
+  Tracks _tracks = const Tracks();
+  int? _upNextSecs;
+  bool _upNextDismissed = false;
+
   // Captured up front: `ref` can't be used inside dispose().
   late final ProviderContainer _container = ProviderScope.containerOf(context, listen: false);
   late final _repo = _container.read(repositoryProvider);
@@ -95,30 +106,39 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
       SystemChrome.setPreferredOrientations([DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]);
     }
-    _completedSub = _player.stream.completed.listen((done) {
+    _subs.add(_player.stream.completed.listen((done) {
       if (done && _hasNext) _playNext();
-    });
-    _errorSub = _player.stream.error.listen((e) {
+    }));
+    _subs.add(_player.stream.error.listen((e) {
       if (mounted) setState(() => _error = e);
-    });
+    }));
+    _subs.add(_player.stream.tracks.listen((t) {
+      if (mounted) setState(() => _tracks = t);
+    }));
+    _subs.add(_player.stream.position.listen(_onPosition));
     _start();
     _reporter = Timer.periodic(const Duration(seconds: 15), (_) => _report());
   }
 
   Future<void> _start() async {
-    final repo = _repo;
     var startAt = _args.startAt;
     if (_args.isLive) {
       _loadEpg();
-      unawaited(repo.reportProgress(kind: MediaKind.channel, contentId: _args.item.id).catchError((_) {}));
+      unawaited(_repo.reportProgress(kind: MediaKind.channel, contentId: _args.item.id).catchError((_) {}));
     } else if (startAt == null) {
       // Resume where the user left off unless they'd basically finished.
-      final p = await repo.progressFor(_args.item.id, episodeId: _args.episode?.id).catchError((_) => null);
+      final p = await _repo.progressFor(_args.item.id, episodeId: _args.episode?.id).catchError((_) => null);
       if (p != null && !p.completed && p.positionSecs > 30) startAt = p.positionSecs;
     }
     if (!mounted) return;
-    setState(() => _error = null);
+    setState(() {
+      _error = null;
+      _upNextSecs = null;
+      _upNextDismissed = false;
+    });
+    _countdown?.cancel();
     await _player.open(Media(_args.url, start: startAt == null ? null : Duration(seconds: startAt)));
+    if (_rate != 1) await _player.setRate(_rate);
   }
 
   Future<void> _loadEpg() async {
@@ -144,29 +164,61 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         .catchError((_) {});
   }
 
-  bool get _hasNext => _args.queue.isNotEmpty && _args.queueIndex < _args.queue.length - 1;
+  /// Show the "Up next" card in the last seconds of an episode.
+  void _onPosition(Duration pos) {
+    if (!_hasNext || _upNextDismissed || _upNextSecs != null) return;
+    final dur = _player.state.duration;
+    if (dur <= Duration.zero || dur - pos > _upNextWindow) return;
+    setState(() => _upNextSecs = _upNextCountdown);
+    _countdown = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) return t.cancel();
+      final left = (_upNextSecs ?? 0) - 1;
+      if (left <= 0) {
+        t.cancel();
+        _playNext();
+      } else {
+        setState(() => _upNextSecs = left);
+      }
+    });
+  }
+
+  bool get _hasNext => _args.nextEpisode != null;
 
   void _playNext() {
+    _countdown?.cancel();
     _report();
     setState(() => _args = PlayerArgs.episode(_args.item, _args.queue, _args.queueIndex + 1, startAt: 0));
     _start();
+  }
+
+  void _dismissUpNext() {
+    _countdown?.cancel();
+    setState(() {
+      _upNextSecs = null;
+      _upNextDismissed = true;
+    });
   }
 
   @override
   void dispose() {
     _report();
     _reporter?.cancel();
-    _completedSub?.cancel();
-    _errorSub?.cancel();
+    _countdown?.cancel();
+    for (final s in _subs) {
+      s.cancel();
+    }
     _player.dispose();
     // Progress changed; refresh anything that shows it.
     _container.invalidate(homeProvider);
+    _container.invalidate(historyProvider);
     if (_isMobile) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       SystemChrome.setPreferredOrientations([]);
     }
     super.dispose();
   }
+
+  // ---- UI --------------------------------------------------------------
 
   Widget _topBar() {
     final t = Theme.of(context).textTheme;
@@ -186,7 +238,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Row(children: [
-                if (_args.isLive) ...[_liveDot(), const SizedBox(width: 8)],
+                if (_args.isLive) ...[const LiveBadge(), const SizedBox(width: 8)],
                 Flexible(
                   child: Text(_args.title, maxLines: 1, overflow: TextOverflow.ellipsis,
                       style: t.titleMedium?.copyWith(color: Colors.white, fontWeight: FontWeight.w700)),
@@ -209,40 +261,157 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     );
   }
 
-  Widget _liveDot() => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-        decoration: BoxDecoration(color: AppColors.live, borderRadius: BorderRadius.circular(4)),
-        child: const Text('LIVE', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800)),
+  Widget _speedButton() => PopupMenuButton<double>(
+        tooltip: 'Playback speed',
+        initialValue: _rate,
+        onSelected: (r) {
+          _player.setRate(r);
+          setState(() => _rate = r);
+        },
+        itemBuilder: (_) => [
+          for (final s in _speeds) PopupMenuItem(value: s, child: Text(s == 1 ? 'Normal' : '${s}x')),
+        ],
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: Text(_rate == 1 ? '1x' : '${_rate}x',
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13)),
+        ),
       );
+
+  Widget _tracksButton() {
+    final audio = _tracks.audio.where((a) => a.id != 'auto' && a.id != 'no').toList();
+    final subs = _tracks.subtitle.where((s) => s.id != 'auto').toList();
+    if (audio.length < 2 && subs.length < 2) return const SizedBox.shrink();
+    String name(String id, String? title, String? lang) =>
+        [?title, if (lang != null) lang.toUpperCase()].join(' · ').ifEmpty('Track $id');
+    return PopupMenuButton<VoidCallback>(
+      tooltip: 'Audio & subtitles',
+      icon: const Icon(Icons.subtitles_outlined, color: Colors.white),
+      onSelected: (fn) => fn(),
+      itemBuilder: (_) => [
+        if (audio.length > 1) ...[
+          const PopupMenuItem(enabled: false, height: 32, child: Text('AUDIO', style: TextStyle(fontSize: 11, letterSpacing: 1))),
+          for (final a in audio)
+            PopupMenuItem(
+              value: () => _player.setAudioTrack(a),
+              child: Row(children: [
+                Icon(a.id == _player.state.track.audio.id ? Icons.check_rounded : null, size: 18),
+                const SizedBox(width: 8),
+                Text(name(a.id, a.title, a.language)),
+              ]),
+            ),
+        ],
+        if (subs.length > 1) ...[
+          const PopupMenuItem(enabled: false, height: 32, child: Text('SUBTITLES', style: TextStyle(fontSize: 11, letterSpacing: 1))),
+          for (final s in subs)
+            PopupMenuItem(
+              value: () => _player.setSubtitleTrack(s),
+              child: Row(children: [
+                Icon(s.id == _player.state.track.subtitle.id ? Icons.check_rounded : null, size: 18),
+                const SizedBox(width: 8),
+                Text(s.id == 'no' ? 'Off' : name(s.id, s.title, s.language)),
+              ]),
+            ),
+        ],
+      ],
+    );
+  }
+
+  Widget _upNextCard() {
+    final next = _args.nextEpisode!;
+    return Positioned(
+      right: 24,
+      bottom: 90,
+      child: Container(
+        width: 320,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppColors.surface.withValues(alpha: 0.96),
+          borderRadius: BorderRadius.circular(Radii.card),
+          border: Border.all(color: AppColors.outline),
+          boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 24, offset: Offset(0, 8))],
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          Text('Up next in $_upNextSecs s', style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
+          const SizedBox(height: 8),
+          Row(children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: SizedBox(
+                width: 96,
+                height: 54,
+                child: NetImage(next.thumb ?? _args.item.backdrop, label: 'E${next.episode}', memCacheWidth: 200),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text('E${next.episode} · ${next.title}', maxLines: 2, overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w700)),
+            ),
+          ]),
+          const SizedBox(height: 10),
+          Row(children: [
+            TextButton(onPressed: _dismissUpNext, child: const Text('Cancel')),
+            const Spacer(),
+            FilledButton.icon(
+              onPressed: _playNext,
+              style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10)),
+              icon: const Icon(Icons.play_arrow_rounded, size: 18),
+              label: const Text('Play now'),
+            ),
+          ]),
+        ]),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final top = [_topBar()];
+    final extras = [_tracksButton(), _speedButton()];
+    final live = _args.isLive;
     final video = Video(controller: _video, controls: AdaptiveVideoControls);
+
+    final mobileTheme = MaterialVideoControlsThemeData(
+      topButtonBar: top,
+      bottomButtonBar: [const MaterialPositionIndicator(), const Spacer(), ...extras, const MaterialFullscreenButton()],
+      seekBarPositionColor: AppColors.accent,
+      seekBarThumbColor: AppColors.accent,
+      displaySeekBar: !live,
+      seekOnDoubleTap: !live,
+    );
+    final desktopTheme = MaterialDesktopVideoControlsThemeData(
+      topButtonBar: top,
+      bottomButtonBar: [
+        const MaterialDesktopSkipPreviousButton(),
+        const MaterialDesktopPlayOrPauseButton(),
+        const MaterialDesktopSkipNextButton(),
+        const MaterialDesktopVolumeButton(),
+        const MaterialDesktopPositionIndicator(),
+        const Spacer(),
+        ...extras,
+        const MaterialDesktopFullscreenButton(),
+      ],
+      seekBarPositionColor: AppColors.accent,
+      seekBarThumbColor: AppColors.accent,
+      displaySeekBar: !live,
+    );
+
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(children: [
         Positioned.fill(
           child: MaterialVideoControlsTheme(
-            normal: MaterialVideoControlsThemeData(
-              topButtonBar: top,
-              seekBarPositionColor: AppColors.accent,
-              seekBarThumbColor: AppColors.accent,
-              displaySeekBar: !_args.isLive,
-            ),
-            fullscreen: MaterialVideoControlsThemeData(topButtonBar: top, displaySeekBar: !_args.isLive),
+            normal: mobileTheme,
+            fullscreen: mobileTheme,
             child: MaterialDesktopVideoControlsTheme(
-              normal: MaterialDesktopVideoControlsThemeData(
-                topButtonBar: top,
-                seekBarPositionColor: AppColors.accent,
-                seekBarThumbColor: AppColors.accent,
-                displaySeekBar: !_args.isLive,
-              ),
-              fullscreen: MaterialDesktopVideoControlsThemeData(topButtonBar: top, displaySeekBar: !_args.isLive),
+              normal: desktopTheme,
+              fullscreen: desktopTheme,
               child: video,
             ),
           ),
         ),
+        if (_upNextSecs != null && _hasNext) _upNextCard(),
         if (_error != null)
           Positioned.fill(
             child: ColoredBox(
@@ -270,4 +439,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       ]),
     );
   }
+}
+
+extension on String {
+  String ifEmpty(String fallback) => isEmpty ? fallback : this;
 }

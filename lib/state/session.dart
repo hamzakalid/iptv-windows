@@ -17,6 +17,7 @@ const _kServer = 'server_url';
 const _kToken = 'auth_token';
 const _kEmail = 'auth_email';
 const _kActivePlaylist = 'active_playlist';
+const _kLastSeen = 'last_seen_at';
 
 const _secure = FlutterSecureStorage();
 
@@ -88,6 +89,29 @@ final repositoryProvider = Provider<IptvRepository>((ref) {
     },
   ));
 });
+
+/// When the user last opened the app; anything added after this is "new".
+final lastSeenProvider = NotifierProvider<LastSeen, DateTime?>(LastSeen.new);
+
+class LastSeen extends Notifier<DateTime?> {
+  @override
+  DateTime? build() {
+    final prefs = ref.read(prefsProvider);
+    final stored = prefs.getString(_kLastSeen);
+    if (stored == null) {
+      // First launch: nothing counts as new yet.
+      prefs.setString(_kLastSeen, DateTime.now().toIso8601String());
+      return null;
+    }
+    return DateTime.tryParse(stored);
+  }
+
+  void markSeen() {
+    final now = DateTime.now();
+    ref.read(prefsProvider).setString(_kLastSeen, now.toIso8601String());
+    state = now;
+  }
+}
 
 /// The playlist the catalogue is scoped to. `null` lets the backend pick
 /// the most recently synced one.

@@ -217,7 +217,7 @@ class RatingBadge extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          const Icon(Icons.star_rounded, size: 14, color: Color(0xFFFACC15)),
+          const Icon(Icons.star_rounded, size: 14, color: AppColors.gold),
           const SizedBox(width: 2),
           Text(rating.toStringAsFixed(1),
               style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white)),
@@ -257,12 +257,15 @@ class MetaChip extends StatelessWidget {
       );
 }
 
-/// Adds a subtle lift + glow when hovered (desktop) and a press scale.
+/// Adds a lift + glow on hover (desktop) and optionally reveals an overlay.
 class Hoverable extends StatefulWidget {
-  const Hoverable({super.key, required this.child, required this.onTap, this.radius = 14});
+  const Hoverable({super.key, required this.child, required this.onTap, this.radius = 14, this.overlay});
   final Widget child;
   final VoidCallback onTap;
   final double radius;
+
+  /// Drawn on top of [child] while hovered; fades in and out.
+  final Widget? overlay;
 
   @override
   State<Hoverable> createState() => _HoverableState();
@@ -280,7 +283,7 @@ class _HoverableState extends State<Hoverable> {
       child: GestureDetector(
         onTap: widget.onTap,
         child: AnimatedScale(
-          scale: _hover ? 1.04 : 1,
+          scale: _hover ? 1.03 : 1,
           duration: const Duration(milliseconds: 180),
           curve: Curves.easeOut,
           child: AnimatedContainer(
@@ -288,13 +291,105 @@ class _HoverableState extends State<Hoverable> {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(widget.radius),
               boxShadow: _hover
-                  ? [BoxShadow(color: AppColors.primary.withValues(alpha: 0.35), blurRadius: 24, spreadRadius: 1)]
+                  ? [BoxShadow(color: Colors.black.withValues(alpha: 0.5), blurRadius: 24, offset: const Offset(0, 10))]
                   : const [],
             ),
-            child: widget.child,
+            child: widget.overlay == null
+                ? widget.child
+                : Stack(fit: StackFit.passthrough, children: [
+                    widget.child,
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        ignoring: !_hover,
+                        child: AnimatedOpacity(
+                          opacity: _hover ? 1 : 0,
+                          duration: const Duration(milliseconds: 160),
+                          child: widget.overlay,
+                        ),
+                      ),
+                    ),
+                  ]),
           ),
         ),
       ),
     );
   }
+}
+
+/// Small pill used for genres and metadata, matching the reference chips.
+class Pill extends StatelessWidget {
+  const Pill(this.label, {super.key, this.selected = false, this.onTap, this.icon});
+  final String label;
+  final bool selected;
+  final VoidCallback? onTap;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final child = AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: selected ? AppColors.text : AppColors.surfaceHigh,
+        borderRadius: BorderRadius.circular(Radii.chip),
+        border: Border.all(color: selected ? AppColors.text : AppColors.outline),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        if (icon != null) ...[
+          Icon(icon, size: 15, color: selected ? AppColors.bg : AppColors.textMuted),
+          const SizedBox(width: 6),
+        ],
+        Text(label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: selected ? AppColors.bg : AppColors.text,
+            )),
+      ]),
+    );
+    if (onTap == null) return child;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(onTap: onTap, child: child),
+    );
+  }
+}
+
+/// Circular translucent icon button used over artwork.
+class GlassIconButton extends StatelessWidget {
+  const GlassIconButton({super.key, required this.icon, required this.onTap, this.size = 40, this.color, this.tooltip});
+  final IconData icon;
+  final VoidCallback onTap;
+  final double size;
+  final Color? color;
+  final String? tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    final b = Material(
+      color: Colors.black.withValues(alpha: 0.45),
+      shape: const CircleBorder(side: BorderSide(color: Colors.white24)),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: SizedBox.square(dimension: size, child: Icon(icon, size: size * 0.5, color: color ?? Colors.white)),
+      ),
+    );
+    return tooltip == null ? b : Tooltip(message: tooltip!, child: b);
+  }
+}
+
+/// Gold star + rating, e.g. "★ 7.1".
+class StarRating extends StatelessWidget {
+  const StarRating(this.rating, {super.key, this.size = 12});
+  final double rating;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.star_rounded, size: size + 3, color: AppColors.gold),
+        const SizedBox(width: 2),
+        Text(rating.toStringAsFixed(1),
+            style: TextStyle(fontSize: size, fontWeight: FontWeight.w700, color: AppColors.gold)),
+      ]);
 }

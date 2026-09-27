@@ -7,8 +7,8 @@ import 'features/auth/login_screen.dart';
 import 'features/browse/browse_screen.dart';
 import 'features/details/movie_details_screen.dart';
 import 'features/details/series_details_screen.dart';
-import 'features/favorites/favorites_screen.dart';
 import 'features/home/home_screen.dart';
+import 'features/library/library_screen.dart';
 import 'features/live/live_screen.dart';
 import 'features/player/player_screen.dart';
 import 'features/search/search_screen.dart';
@@ -50,10 +50,16 @@ final routerProvider = Provider<GoRouter>((ref) {
           branch('/movies', const BrowseScreen(kind: MediaKind.movie)),
           branch('/series', const BrowseScreen(kind: MediaKind.series)),
           branch('/live', const LiveScreen()),
-          branch('/library', const FavoritesScreen()),
+          branch('/library', const LibraryScreen()),
         ],
       ),
-      GoRoute(path: '/search', builder: (_, _) => const SearchScreen()),
+      GoRoute(
+        path: '/search',
+        builder: (_, s) => SearchScreen(
+          initialQuery: s.uri.queryParameters['q'],
+          initialScope: int.tryParse(s.uri.queryParameters['scope'] ?? '') ?? 0,
+        ),
+      ),
       GoRoute(path: '/settings', builder: (_, _) => const SettingsScreen()),
       GoRoute(path: '/settings/add-playlist', builder: (_, _) => const AddPlaylistScreen()),
       GoRoute(

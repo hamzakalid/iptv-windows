@@ -15,15 +15,9 @@ class SectionHeader extends StatelessWidget {
     return Padding(
       padding: EdgeInsets.fromLTRB(context.pagePadding, 0, context.pagePadding, 12),
       child: Row(children: [
-        Container(
-          width: 4,
-          height: 22,
-          decoration: BoxDecoration(gradient: AppColors.brandGradient, borderRadius: BorderRadius.circular(2)),
-        ),
-        const SizedBox(width: 10),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title, style: t.titleLarge?.copyWith(fontSize: 20)),
+            Text(title, style: t.titleLarge?.copyWith(fontSize: 19)),
             if (subtitle != null) Text(subtitle!, style: t.bodySmall?.copyWith(color: AppColors.textMuted)),
           ]),
         ),
@@ -33,9 +27,127 @@ class SectionHeader extends StatelessWidget {
   }
 }
 
-/// Titled horizontal carousel. On wide screens it shows paging arrows,
-/// since horizontal scrolling with a mouse wheel is awkward.
-class MediaRow extends StatefulWidget {
+class SeeAllButton extends StatelessWidget {
+  const SeeAllButton({super.key, required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => TextButton(
+        onPressed: onTap,
+        style: TextButton.styleFrom(foregroundColor: AppColors.textMuted),
+        child: const Row(mainAxisSize: MainAxisSize.min, children: [
+          Text('See all'),
+          Icon(Icons.chevron_right_rounded, size: 18),
+        ]),
+      );
+}
+
+/// Horizontal list that pages with arrow buttons on wide screens.
+class ArrowScroller extends StatefulWidget {
+  const ArrowScroller({
+    super.key,
+    required this.height,
+    required this.itemCount,
+    required this.itemBuilder,
+    this.separator = 14,
+    this.padding,
+    this.arrowInset = 0,
+  });
+
+  final double height;
+  final int itemCount;
+  final Widget Function(BuildContext, int) itemBuilder;
+  final double separator;
+  final EdgeInsets? padding;
+  final double arrowInset;
+
+  @override
+  State<ArrowScroller> createState() => _ArrowScrollerState();
+}
+
+class _ArrowScrollerState extends State<ArrowScroller> {
+  final _controller = ScrollController();
+  bool _hover = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _page(int dir) {
+    if (!_controller.hasClients) return;
+    final viewport = _controller.position.viewportDimension;
+    _controller.animateTo(
+      (_controller.offset + dir * viewport * 0.8).clamp(0, _controller.position.maxScrollExtent),
+      duration: const Duration(milliseconds: 420),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pad = widget.padding ?? EdgeInsets.symmetric(horizontal: context.pagePadding, vertical: 6);
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: SizedBox(
+        height: widget.height,
+        child: Stack(children: [
+          ListView.separated(
+            controller: _controller,
+            scrollDirection: Axis.horizontal,
+            padding: pad,
+            clipBehavior: Clip.none,
+            itemCount: widget.itemCount,
+            separatorBuilder: (_, _) => SizedBox(width: widget.separator),
+            itemBuilder: widget.itemBuilder,
+          ),
+          if (context.hasMouse) ...[
+            _Arrow(left: true, visible: _hover, inset: widget.arrowInset, onTap: () => _page(-1)),
+            _Arrow(left: false, visible: _hover, inset: widget.arrowInset, onTap: () => _page(1)),
+          ],
+        ]),
+      ),
+    );
+  }
+}
+
+class _Arrow extends StatelessWidget {
+  const _Arrow({required this.left, required this.visible, required this.onTap, required this.inset});
+  final bool left;
+  final bool visible;
+  final double inset;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Positioned(
+        left: left ? 4 : null,
+        right: left ? null : 4,
+        top: 0,
+        bottom: inset,
+        child: AnimatedOpacity(
+          opacity: visible ? 1 : 0,
+          duration: const Duration(milliseconds: 150),
+          child: IgnorePointer(
+            ignoring: !visible,
+            child: Center(
+              child: Material(
+                color: AppColors.surfaceHigh.withValues(alpha: 0.92),
+                shape: const CircleBorder(side: BorderSide(color: AppColors.outline)),
+                child: IconButton(
+                  onPressed: onTap,
+                  icon: Icon(left ? Icons.chevron_left_rounded : Icons.chevron_right_rounded, size: 26),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+}
+
+/// Titled horizontal carousel of cards.
+class MediaRow extends StatelessWidget {
   const MediaRow({
     super.key,
     required this.title,
@@ -56,92 +168,38 @@ class MediaRow extends StatefulWidget {
   final Widget Function(BuildContext, int) itemBuilder;
 
   @override
-  State<MediaRow> createState() => _MediaRowState();
-}
-
-class _MediaRowState extends State<MediaRow> {
-  final _controller = ScrollController();
-  bool _hover = false;
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _page(int dir) {
-    final viewport = _controller.position.viewportDimension;
-    _controller.animateTo(
-      (_controller.offset + dir * viewport * 0.85).clamp(0, _controller.position.maxScrollExtent),
-      duration: const Duration(milliseconds: 420),
-      curve: Curves.easeOutCubic,
-    );
-  }
-
-  @override
   Widget build(BuildContext context) {
-    if (widget.itemCount == 0) return const SizedBox.shrink();
-    final pad = context.pagePadding;
+    if (itemCount == 0) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(bottom: 28),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        SectionHeader(widget.title, subtitle: widget.subtitle, trailing: widget.trailing),
-        MouseRegion(
-          onEnter: (_) => setState(() => _hover = true),
-          onExit: (_) => setState(() => _hover = false),
-          child: SizedBox(
-            height: widget.height,
-            child: Stack(children: [
-              ListView.separated(
-                controller: _controller,
-                scrollDirection: Axis.horizontal,
-                padding: EdgeInsets.symmetric(horizontal: pad, vertical: 6),
-                clipBehavior: Clip.none,
-                itemCount: widget.itemCount,
-                separatorBuilder: (_, _) => const SizedBox(width: 14),
-                itemBuilder: (c, i) => SizedBox(width: widget.itemWidth, child: widget.itemBuilder(c, i)),
-              ),
-              if (context.isWide) ...[
-                _Arrow(left: true, visible: _hover, onTap: () => _page(-1)),
-                _Arrow(left: false, visible: _hover, onTap: () => _page(1)),
-              ],
-            ]),
-          ),
+        SectionHeader(title, subtitle: subtitle, trailing: trailing),
+        ArrowScroller(
+          height: height,
+          itemCount: itemCount,
+          arrowInset: 44,
+          itemBuilder: (c, i) => SizedBox(width: itemWidth, child: itemBuilder(c, i)),
         ),
       ]),
     );
   }
 }
 
-class _Arrow extends StatelessWidget {
-  const _Arrow({required this.left, required this.visible, required this.onTap});
-  final bool left;
-  final bool visible;
-  final VoidCallback onTap;
+/// A scrollable row of selectable pills (genres, categories, scopes).
+class ChipStrip extends StatelessWidget {
+  const ChipStrip({super.key, required this.labels, required this.selected, required this.onSelect, this.leading});
+  final List<String> labels;
+  final int selected;
+  final ValueChanged<int> onSelect;
+  final Widget? leading;
 
   @override
-  Widget build(BuildContext context) => Positioned(
-        left: left ? 4 : null,
-        right: left ? null : 4,
-        top: 0,
-        bottom: 40,
-        child: AnimatedOpacity(
-          opacity: visible ? 1 : 0,
-          duration: const Duration(milliseconds: 150),
-          child: IgnorePointer(
-            ignoring: !visible,
-            child: Center(
-              child: Material(
-                color: Colors.black.withValues(alpha: 0.7),
-                shape: const CircleBorder(side: BorderSide(color: Colors.white24)),
-                child: IconButton(
-                  onPressed: onTap,
-                  icon: Icon(left ? Icons.chevron_left_rounded : Icons.chevron_right_rounded, size: 28),
-                ),
-              ),
-            ),
-          ),
-        ),
+  Widget build(BuildContext context) => ArrowScroller(
+        height: 48,
+        separator: 8,
+        itemCount: labels.length,
+        padding: EdgeInsets.symmetric(horizontal: context.pagePadding, vertical: 6),
+        itemBuilder: (_, i) => Pill(labels[i], selected: i == selected, onTap: () => onSelect(i)),
       );
 }
 
@@ -166,7 +224,7 @@ class SkeletonRow extends StatelessWidget {
             padding: EdgeInsets.symmetric(horizontal: pad),
             itemCount: 8,
             separatorBuilder: (_, _) => const SizedBox(width: 14),
-            itemBuilder: (_, _) => Skeleton(width: itemWidth, radius: 14),
+            itemBuilder: (_, _) => Skeleton(width: itemWidth, radius: Radii.card),
           ),
         ),
       ]),

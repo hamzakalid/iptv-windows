@@ -32,6 +32,7 @@ class MediaItem {
     this.rating,
     this.year,
     this.details,
+    this.createdAt,
     this.raw = const {},
   });
 
@@ -45,6 +46,7 @@ class MediaItem {
   final double? rating;
   final int? year;
   final Json? details;
+  final DateTime? createdAt;
   final Json raw;
 
   factory MediaItem.fromJson(Json j, MediaKind kind) => MediaItem(
@@ -58,6 +60,7 @@ class MediaItem {
         rating: jDouble(j['rating']),
         year: jInt(j['year']),
         details: jMap(j['details']),
+        createdAt: jDate(j['createdAt']),
         raw: j,
       );
 
@@ -72,6 +75,42 @@ class MediaItem {
 
   String? get plot => jStr(details?['plot']);
   String? get genre => jStr(details?['genre']);
+  int? get durationSecs => jInt(details?['durationSecs']);
+
+  /// Provider genre strings look like "Action, Adventure / Sci-Fi".
+  List<String> get genres => (genre ?? '')
+      .split(RegExp(r'[,/|]'))
+      .map((g) => g.trim())
+      .where((g) => g.isNotEmpty)
+      .toList();
+
+  bool get hasArtwork => logo != null || backdrop != null;
+}
+
+/// A recommended item plus the title that led to it ("Because you watched…").
+class Recommendation {
+  Recommendation({required this.item, this.seedName, this.seedId, this.seedKind});
+  final MediaItem item;
+  final String? seedName;
+  final String? seedId;
+
+  /// `watched` or `favorited` — which signal produced this pick.
+  final String? seedKind;
+
+  factory Recommendation.fromJson(Json j) {
+    final reasons = jMapList(j['reasons']);
+    final first = reasons.isEmpty ? null : reasons.first;
+    return Recommendation(
+      item: MediaItem.fromJson(jMap(j['content'])!, MediaKind.parse(j['type'])),
+      seedName: jStr(first?['seedName']),
+      seedId: jStr(first?['seedId']),
+      seedKind: jStr(first?['kind']),
+    );
+  }
+
+  /// Row title for a group of picks sharing this seed.
+  String get reasonTitle =>
+      seedKind == 'favorited' ? 'Because you saved $seedName' : 'Because you watched $seedName';
 }
 
 class Actor {

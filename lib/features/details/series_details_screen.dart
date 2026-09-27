@@ -77,15 +77,7 @@ class _SeriesDetailsScreenState extends ConsumerState<SeriesDetailsScreen> {
                   for (final s in seasons.keys)
                     Padding(
                       padding: const EdgeInsets.only(right: 8),
-                      child: ChoiceChip(
-                        label: Text('Season $s'),
-                        selected: s == season,
-                        labelStyle: TextStyle(
-                          color: s == season ? Colors.white : AppColors.text,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        onSelected: (_) => setState(() => _season = s),
-                      ),
+                      child: Pill('Season $s', selected: s == season, onTap: () => setState(() => _season = s)),
                     ),
                 ],
               ),

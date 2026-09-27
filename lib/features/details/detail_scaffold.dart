@@ -151,7 +151,7 @@ class FavoriteButton extends ConsumerWidget {
           }
         }
       },
-      icon: Icon(saved ? Icons.bookmark_rounded : Icons.bookmark_add_outlined,
+      icon: Icon(saved ? Icons.favorite_rounded : Icons.favorite_border_rounded,
           color: saved ? AppColors.accent : null),
       label: Text(saved ? 'In My List' : 'My List'),
     );

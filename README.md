@@ -3,12 +3,14 @@
 One Flutter codebase for **Android, iOS and Windows** that talks to
 [`app-iptv-backend`](https://github.com/hamzakalid/app-iptv-backend).
 
-- **Home**: auto-rotating featured hero, continue watching (with progress), personalised recommendations, live channels, top rated, new movies and series
-- **Movies / Series / Live TV**: infinite-scroll grids, search, and category filters (chips on phones, a sidebar on desktop)
+- **Home**: featured carousel of rounded cards (genre pills, rating, save-to-list), a category strip that drives the row beneath it ("For you", Action, Drama, …), *Because you watched …* rows, Live now, Top rated, New movies and New series
+- **Desktop shell**: persistent top bar with scoped search (All / Movies / Series / Live TV), a *what's new* bell listing titles added since your last visit, a profile menu to switch playlists, and a sidebar with **Continue Watching** thumbnails
+- **Movies / Series / Live TV**: infinite-scroll grids with category filters, **sort** (recently added, top rated, release year, A–Z), **minimum rating** pills, and a **Surprise me** shuffle that picks a random title matching the current filters
 - **Details**: cinematic header, resume/restart, My List, trailer, cast (tap through to the actor's page), "More like this", season and episode picker
-- **Player**: [`media_kit`](https://pub.dev/packages/media_kit) (libmpv) plays HLS, MPEG-TS and MP4 on every platform. It resumes from your last position, reports progress every 15s, shows the live EPG ("Now: …") and has a next-episode button for series
+- **Library**: My List (favourites) and **History** with progress, "watched" ticks and one-tap resume; finished movies get a ✓ badge on every poster
+- **Player**: [`media_kit`](https://pub.dev/packages/media_kit) (libmpv) plays HLS, MPEG-TS and MP4 on every platform. Resumes from your last position, reports progress every 15 s, shows the live EPG ("Now: …"), playback **speed**, **audio & subtitle** track selection, and an **Up next** countdown that auto-plays the following episode
 - **Playlists**: add Xtream Codes or M3U with **Test connection**, see live sync status, re-sync, switch or delete
-- **Adaptive layout**: bottom navigation on phones, a collapsible sidebar on tablets and Windows, hover effects and row arrows for the mouse
+- **Adaptive layout**: bottom navigation on phones; sidebar + top bar on tablets and Windows, with hover previews on posters and paging arrows on rows
 
 ## Run it
 
@@ -56,5 +58,6 @@ test/models_test.dart    parsing tests against real backend payload shapes
 
 - **Cleartext HTTP is enabled** on Android (`usesCleartextTraffic`) and iOS (ATS `NSAllowsArbitraryLoads`), because most IPTV providers and LAN backends use plain `http://`.
 - The JWT is kept in the OS secure store (`flutter_secure_storage`); the server URL and the chosen playlist are kept in `shared_preferences`.
-- The models accept both the shapes in `docs/API.md` and what the server sends today (for example, playlist `counts` rather than `stats`, and a flat series `episodes` array rather than a season-keyed map).
+- Sorting, rating/year filters and hydrated history need the backend from the same branch (`sort`, `minRating`, `yearFrom`/`yearTo` on list endpoints; `GET /watch-events?hydrate=1`). Older servers ignore the params, so lists stay unsorted and the History tab is empty.
+- The models accept both the shapes in `docs/API.md` and what the server sends today (for example, a flat series `episodes` array rather than a season-keyed map).
 - Branding lives in `lib/core/theme.dart` (`appName` and `AppColors`).

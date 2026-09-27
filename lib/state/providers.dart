@@ -26,13 +26,52 @@ final homeProvider = FutureProvider<HomeData>((ref) async {
   return data;
 });
 
-final recommendationsProvider = FutureProvider<List<MediaItem>>((ref) => ref
+final recommendationsProvider = FutureProvider<List<Recommendation>>((ref) => ref
     .watch(repositoryProvider)
     .recommendations(playlistId: ref.watch(activePlaylistProvider))
-    .catchError((_) => <MediaItem>[]));
+    .catchError((_) => <Recommendation>[]));
+
+/// Flat "For you" list. Personalised picks come first; when there are few
+/// (new account, small playlist) the row is topped up with the best-rated
+/// titles the user hasn't finished, so it never looks empty.
+final forYouProvider = Provider<List<MediaItem>>((ref) {
+  final recs = (ref.watch(recommendationsProvider).value ?? const <Recommendation>[]).map((r) => r.item).toList();
+  if (recs.length >= 8) return recs;
+  final watched = ref.watch(watchedIdsProvider);
+  final seen = recs.map((m) => m.id).toSet();
+  final top = ref.watch(homeProvider).value?.topRatedMovies ?? const <MediaItem>[];
+  return [...recs, ...top.where((m) => !watched.contains(m.id) && seen.add(m.id))];
+});
+
+typedef SeedRow = ({String title, List<MediaItem> items});
+
+/// Recommendations grouped by the title that produced them, biggest groups
+/// first. Rows with fewer than three items aren't worth a carousel.
+final becauseYouWatchedProvider = Provider<List<SeedRow>>((ref) {
+  final recs = ref.watch(recommendationsProvider).value ?? const <Recommendation>[];
+  final groups = <String, List<MediaItem>>{};
+  for (final r in recs) {
+    if (r.seedName == null) continue;
+    groups.putIfAbsent(r.reasonTitle, () => []).add(r.item);
+  }
+  final rows = groups.entries
+      .where((e) => e.value.length >= 3)
+      .map((e) => (title: e.key, items: e.value))
+      .toList()
+    ..sort((a, b) => b.items.length.compareTo(a.items.length));
+  return rows.take(3).toList();
+});
 
 final categoriesProvider = FutureProvider.family<Categories, MediaKind>((ref, kind) =>
     ref.watch(repositoryProvider).categories(kind, playlistId: ref.watch(activePlaylistProvider)));
+
+/// One home-screen row for a movie category ("Action", "Comedy", …).
+final categoryRowProvider = FutureProvider.family<List<MediaItem>, String>((ref, group) async {
+  final page = await ref
+      .watch(repositoryProvider)
+      .list(MediaKind.movie, playlistId: ref.watch(activePlaylistProvider), group: group, limit: 20);
+  return page.items;
+});
 
 typedef ItemRef = ({MediaKind kind, String id});
 
@@ -52,6 +91,42 @@ final actorProvider = FutureProvider.autoDispose
 
 final searchProvider = FutureProvider.autoDispose.family<SearchResults, String>((ref, q) =>
     ref.watch(repositoryProvider).search(q, playlistId: ref.watch(activePlaylistProvider)));
+
+/// Most recent watch events, hydrated with their content.
+final historyProvider = FutureProvider<List<WatchEvent>>(
+    (ref) => ref.watch(repositoryProvider).history().catchError((_) => <WatchEvent>[]));
+
+/// Content ids the user has finished, for "watched" badges on posters.
+final watchedIdsProvider = Provider<Set<String>>((ref) => (ref.watch(historyProvider).value ?? const [])
+    .where((e) => e.completed && e.kind == MediaKind.movie)
+    .map((e) => e.contentId)
+    .toSet());
+
+/// Titles added to the playlist since the user last opened the app.
+final whatsNewProvider = Provider<List<MediaItem>>((ref) {
+  final since = ref.watch(lastSeenProvider);
+  final home = ref.watch(homeProvider).value;
+  if (home == null || since == null) return const [];
+  return [...home.recentMovies, ...home.recentSeries]
+      .where((m) => m.createdAt != null && m.createdAt!.isAfter(since))
+      .toList()
+    ..sort((a, b) => b.createdAt!.compareTo(a.createdAt!));
+});
+
+/// A pending request from another screen to open Browse pre-filtered.
+final browseIntentProvider = NotifierProvider<BrowseIntent, ({MediaKind kind, String? group})?>(BrowseIntent.new);
+
+class BrowseIntent extends Notifier<({MediaKind kind, String? group})?> {
+  @override
+  ({MediaKind kind, String? group})? build() => null;
+  void set(MediaKind kind, String? group) => state = (kind: kind, group: group);
+  ({MediaKind kind, String? group})? take(MediaKind kind) {
+    final s = state;
+    if (s == null || s.kind != kind) return null;
+    state = null;
+    return s;
+  }
+}
 
 /// Favourites with optimistic add/remove.
 final favoritesProvider = AsyncNotifierProvider<FavoritesController, List<Favorite>>(FavoritesController.new);

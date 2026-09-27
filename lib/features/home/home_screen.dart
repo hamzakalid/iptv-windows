@@ -12,7 +12,6 @@ import '../../widgets/app_shell.dart';
 import '../../widgets/common.dart';
 import '../../widgets/media_cards.dart';
 import '../../widgets/media_row.dart';
-import '../player/player_screen.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -22,7 +21,12 @@ class HomeScreen extends ConsumerWidget {
     final home = ref.watch(homeProvider);
     return Scaffold(
       body: RefreshIndicator(
-        onRefresh: () => ref.refresh(homeProvider.future),
+        onRefresh: () async {
+          ref.invalidate(recommendationsProvider);
+          ref.invalidate(historyProvider);
+          ref.invalidate(homeProvider);
+          await ref.read(homeProvider.future);
+        },
         child: home.when(
           loading: () => const _HomeSkeleton(),
           error: (e, _) => ErrorView(error: e, onRetry: () => ref.invalidate(homeProvider)),
@@ -39,21 +43,27 @@ class _HomeContent extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final recs = ref.watch(recommendationsProvider).value ?? const [];
     final wide = context.isWide;
-    final poster = wide ? 170.0 : 128.0;
-    final posterHeight = poster * 1.5 + 50;
-    final channel = wide ? 210.0 : 160.0;
+    final poster = wide ? 164.0 : 126.0;
+    final posterHeight = poster * 1.5 + 56;
+    final channel = wide ? 200.0 : 156.0;
+    final becauseRows = ref.watch(becauseYouWatchedProvider);
 
-    final heroItems = [...data.topRatedMovies, ...data.recentSeries]
-        .where((m) => m.logo != null || m.backdrop != null)
+    // Featured: best-rated first, then newest series/movies; needs artwork.
+    final seen = <String>{};
+    final heroItems = [...data.topRatedMovies, ...data.recentSeries, ...data.recentMovies]
+        .where((m) => m.hasArtwork && seen.add(m.id))
         .take(6)
         .toList();
 
+    void seeAll(int branch, {String? group, MediaKind kind = MediaKind.movie}) {
+      if (group != null) ref.read(browseIntentProvider.notifier).set(kind, group);
+      StatefulNavigationShell.maybeOf(context)?.goBranch(branch);
+    }
+
     return CustomScrollView(slivers: [
-      SliverToBoxAdapter(
-        child: heroItems.isEmpty ? SafeArea(child: _TopBar(data: data)) : _Hero(items: heroItems, data: data),
-      ),
+      SliverToBoxAdapter(child: SafeArea(bottom: false, child: _Greeting(data: data))),
+      if (heroItems.isNotEmpty) SliverToBoxAdapter(child: HeroCarousel(items: heroItems)),
       if (data.isEmpty)
         const SliverFillRemaining(
           hasScrollBody: false,
@@ -64,30 +74,32 @@ class _HomeContent extends ConsumerWidget {
           ),
         ),
       SliverList.list(children: [
-        const SizedBox(height: 8),
-        if (data.continueWatching.isNotEmpty)
+        const SizedBox(height: 24),
+        // On wide screens the sidebar already shows continue-watching.
+        if (!wide && data.continueWatching.isNotEmpty)
           MediaRow(
             title: 'Continue watching',
             itemCount: data.continueWatching.length,
-            itemWidth: wide ? 320 : 250,
-            height: (wide ? 320 : 250) * 9 / 16 + 16,
-            itemBuilder: (_, i) => ContinueCard(entry: data.continueWatching[i], width: wide ? 320 : 250),
+            itemWidth: 250,
+            height: 250 * 9 / 16 + 16,
+            itemBuilder: (_, i) => ContinueCard(entry: data.continueWatching[i], width: 250),
           ),
-        if (recs.isNotEmpty)
+        if (data.movieCount > 0)
+          _CategoryBrowser(poster: poster, height: posterHeight, onSeeAll: (g) => seeAll(1, group: g)),
+        for (final row in becauseRows)
           MediaRow(
-            title: 'Recommended for you',
-            subtitle: 'Based on what you watch',
-            itemCount: recs.length,
+            title: row.title,
+            itemCount: row.items.length,
             itemWidth: poster,
             height: posterHeight,
-            itemBuilder: (_, i) => MediaCard(item: recs[i]),
+            itemBuilder: (_, i) => MediaCard(item: row.items[i]),
           ),
         MediaRow(
           title: 'Live now',
-          trailing: _SeeAll(onTap: () => StatefulNavigationShell.maybeOf(context)?.goBranch(3)),
+          trailing: SeeAllButton(onTap: () => seeAll(3)),
           itemCount: data.liveChannels.length,
           itemWidth: channel,
-          height: channel * 10 / 16 + 44,
+          height: channel * 10 / 16 + 50,
           itemBuilder: (_, i) => ChannelCard(item: data.liveChannels[i]),
         ),
         MediaRow(
@@ -99,7 +111,7 @@ class _HomeContent extends ConsumerWidget {
         ),
         MediaRow(
           title: 'New movies',
-          trailing: _SeeAll(onTap: () => StatefulNavigationShell.maybeOf(context)?.goBranch(1)),
+          trailing: SeeAllButton(onTap: () => seeAll(1)),
           itemCount: data.recentMovies.length,
           itemWidth: poster,
           height: posterHeight,
@@ -107,7 +119,7 @@ class _HomeContent extends ConsumerWidget {
         ),
         MediaRow(
           title: 'New series',
-          trailing: _SeeAll(onTap: () => StatefulNavigationShell.maybeOf(context)?.goBranch(2)),
+          trailing: SeeAllButton(onTap: () => seeAll(2)),
           itemCount: data.recentSeries.length,
           itemWidth: poster,
           height: posterHeight,
@@ -119,37 +131,27 @@ class _HomeContent extends ConsumerWidget {
   }
 }
 
-class _SeeAll extends StatelessWidget {
-  const _SeeAll({required this.onTap});
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => TextButton(
-        onPressed: onTap,
-        child: const Row(mainAxisSize: MainAxisSize.min, children: [
-          Text('See all'),
-          Icon(Icons.chevron_right_rounded, size: 18),
-        ]),
-      );
-}
-
-class _TopBar extends StatelessWidget {
-  const _TopBar({required this.data});
+/// Greeting + library counts. Phones also get the header actions here.
+class _Greeting extends StatelessWidget {
+  const _Greeting({required this.data});
   final HomeData data;
 
   @override
   Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
     final hour = DateTime.now().hour;
     final greeting = hour < 12 ? 'Good morning' : (hour < 18 ? 'Good afternoon' : 'Good evening');
+    final wide = context.isWide;
     return Padding(
-      padding: EdgeInsets.fromLTRB(context.pagePadding, 12, context.pagePadding - 8, 12),
+      padding: EdgeInsets.fromLTRB(context.pagePadding, wide ? 20 : 12, context.pagePadding - (wide ? 0 : 8), 14),
       child: Row(children: [
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(greeting, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+            Text(greeting, style: (wide ? t.headlineSmall : t.titleLarge)),
+            const SizedBox(height: 2),
             Text(
               '${data.channelCount} channels · ${data.movieCount} movies · ${data.seriesCount} series',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+              style: t.bodySmall?.copyWith(color: AppColors.textMuted),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -161,149 +163,156 @@ class _TopBar extends StatelessWidget {
   }
 }
 
-/// Auto-advancing featured carousel.
-class _Hero extends StatefulWidget {
-  const _Hero({required this.items, required this.data});
+/// Featured carousel: rounded cards with a peek of the next one.
+class HeroCarousel extends StatefulWidget {
+  const HeroCarousel({super.key, required this.items});
   final List<MediaItem> items;
-  final HomeData data;
 
   @override
-  State<_Hero> createState() => _HeroState();
+  State<HeroCarousel> createState() => _HeroCarouselState();
 }
 
-class _HeroState extends State<_Hero> {
-  final _page = PageController();
+class _HeroCarouselState extends State<HeroCarousel> {
+  PageController? _page;
   Timer? _timer;
   int _index = 0;
+  bool _hover = false;
 
   @override
   void initState() {
     super.initState();
-    _timer = Timer.periodic(const Duration(seconds: 7), (_) {
-      if (!_page.hasClients) return;
-      final next = (_index + 1) % widget.items.length;
-      _page.animateToPage(next, duration: const Duration(milliseconds: 700), curve: Curves.easeInOutCubic);
+    _timer = Timer.periodic(const Duration(seconds: 8), (_) {
+      if (_hover || _page == null || !_page!.hasClients || widget.items.length < 2) return;
+      _go((_index + 1) % widget.items.length);
     });
   }
+
+  void _go(int i) => _page?.animateToPage(i, duration: const Duration(milliseconds: 650), curve: Curves.easeInOutCubic);
 
   @override
   void dispose() {
     _timer?.cancel();
-    _page.dispose();
+    _page?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final wide = context.isWide;
-    final height = (MediaQuery.sizeOf(context).height * (wide ? 0.62 : 0.58)).clamp(380.0, 640.0);
-    return SizedBox(
-      height: height,
-      child: Stack(children: [
-        PageView.builder(
-          controller: _page,
-          itemCount: widget.items.length,
-          onPageChanged: (i) => setState(() => _index = i),
-          itemBuilder: (_, i) => _HeroSlide(item: widget.items[i]),
-        ),
-        Positioned(top: 0, left: 0, right: 0, child: SafeArea(child: _TopBar(data: widget.data))),
-        Positioned(
-          bottom: 16,
-          right: context.pagePadding,
-          child: Row(children: [
-            for (var i = 0; i < widget.items.length; i++)
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 250),
-                margin: const EdgeInsets.only(left: 6),
-                width: i == _index ? 22 : 7,
-                height: 7,
-                decoration: BoxDecoration(
-                  color: i == _index ? AppColors.text : Colors.white30,
-                  borderRadius: BorderRadius.circular(4),
+    final pad = context.pagePadding;
+    return LayoutBuilder(builder: (context, c) {
+      final fraction = wide ? 0.8 : 0.9;
+      _page ??= PageController(viewportFraction: fraction);
+      final cardWidth = (c.maxWidth - pad) * fraction - 16;
+      final height = (cardWidth * (wide ? 0.44 : 0.62)).clamp(240.0, 430.0);
+      return MouseRegion(
+        onEnter: (_) => _hover = true,
+        onExit: (_) => _hover = false,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          SizedBox(
+            height: height,
+            child: Padding(
+              padding: EdgeInsets.only(left: pad),
+              child: PageView.builder(
+                controller: _page,
+                padEnds: false,
+                itemCount: widget.items.length,
+                onPageChanged: (i) => setState(() => _index = i),
+                itemBuilder: (_, i) => Padding(
+                  padding: const EdgeInsets.only(right: 16),
+                  child: HeroCard(item: widget.items[i], compact: !wide),
                 ),
               ),
-          ]),
-        ),
-      ]),
-    );
+            ),
+          ),
+          const SizedBox(height: 12),
+          Padding(
+            padding: EdgeInsets.only(left: pad),
+            child: Row(children: [
+              for (var i = 0; i < widget.items.length; i++)
+                GestureDetector(
+                  onTap: () => _go(i),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 250),
+                    margin: const EdgeInsets.only(right: 6),
+                    width: i == _index ? 22 : 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: i == _index ? AppColors.text : AppColors.outline,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+            ]),
+          ),
+        ]),
+      );
+    });
   }
 }
 
-class _HeroSlide extends ConsumerWidget {
-  const _HeroSlide({required this.item});
-  final MediaItem item;
+/// Category pills ("For you", "Action", …) driving the row beneath them.
+class _CategoryBrowser extends ConsumerStatefulWidget {
+  const _CategoryBrowser({required this.poster, required this.height, required this.onSeeAll});
+  final double poster;
+  final double height;
+  final ValueChanged<String?> onSeeAll;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final t = Theme.of(context).textTheme;
-    final wide = context.isWide;
-    return Stack(fit: StackFit.expand, children: [
-      NetImage(item.backdrop, label: item.name),
-      const DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0x99000000), Colors.transparent, Color(0xCC09090F), AppColors.bg],
-            stops: [0, 0.3, 0.75, 1],
-          ),
-        ),
-      ),
-      if (wide)
-        const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(colors: [Color(0xE609090F), Colors.transparent], stops: [0, 0.6]),
-          ),
-        ),
-      Positioned(
-        left: context.pagePadding,
-        right: context.pagePadding,
-        bottom: 40,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 620),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(gradient: AppColors.brandGradient, borderRadius: BorderRadius.circular(6)),
-              child: Text(item.kind == MediaKind.series ? 'FEATURED SERIES' : 'FEATURED',
-                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1.2)),
+  ConsumerState<_CategoryBrowser> createState() => _CategoryBrowserState();
+}
+
+class _CategoryBrowserState extends ConsumerState<_CategoryBrowser> {
+  int _selected = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final cats = ref.watch(categoriesProvider(MediaKind.movie)).value?.names ?? const <String>[];
+    final labels = ['For you', ...cats];
+    if (_selected >= labels.length) _selected = 0;
+    final group = _selected == 0 ? null : labels[_selected];
+
+    final List<MediaItem> items;
+    final bool loading;
+    if (group == null) {
+      final recs = ref.watch(recommendationsProvider);
+      items = ref.watch(forYouProvider);
+      loading = recs.isLoading;
+    } else {
+      final row = ref.watch(categoryRowProvider(group));
+      items = row.value ?? const [];
+      loading = row.isLoading;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        ChipStrip(labels: labels, selected: _selected, onSelect: (i) => setState(() => _selected = i)),
+        const SizedBox(height: 14),
+        if (loading && items.isEmpty)
+          SkeletonRow(itemWidth: widget.poster)
+        else if (items.isEmpty)
+          Padding(
+            padding: EdgeInsets.fromLTRB(context.pagePadding, 8, context.pagePadding, 20),
+            child: Text(
+              group == null
+                  ? 'Watch a few titles and personalised picks will appear here.'
+                  : 'Nothing in $group yet.',
+              style: const TextStyle(color: AppColors.textMuted),
             ),
-            const SizedBox(height: 12),
-            Text(item.name, maxLines: 2, overflow: TextOverflow.ellipsis,
-                style: (wide ? t.displaySmall : t.headlineMedium)?.copyWith(height: 1.05)),
-            const SizedBox(height: 12),
-            Wrap(spacing: 8, runSpacing: 8, children: [
-              if (item.rating != null && item.rating! > 0)
-                MetaChip(item.rating!.toStringAsFixed(1), icon: Icons.star_rounded),
-              if (item.year != null) MetaChip('${item.year}'),
-              if (item.group.isNotEmpty) MetaChip(item.group),
-            ]),
-            if (item.plot != null && wide) ...[
-              const SizedBox(height: 14),
-              Text(item.plot!, maxLines: 3, overflow: TextOverflow.ellipsis,
-                  style: t.bodyLarge?.copyWith(color: Colors.white70, height: 1.5)),
-            ],
-            const SizedBox(height: 20),
-            Row(children: [
-              GradientButton(
-                label: item.kind == MediaKind.movie ? 'Play' : 'Watch',
-                icon: Icons.play_arrow_rounded,
-                onPressed: () => item.kind == MediaKind.movie
-                    ? PlayerScreen.open(context, PlayerArgs.movie(item))
-                    : openItem(context, item),
-              ),
-              const SizedBox(width: 12),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(backgroundColor: Colors.black.withValues(alpha: 0.35)),
-                onPressed: () => openItem(context, item),
-                icon: const Icon(Icons.info_outline_rounded),
-                label: const Text('Details'),
-              ),
-            ]),
-          ]),
-        ),
-      ),
-    ]);
+          )
+        else
+          MediaRow(
+            title: group ?? 'Recommended for you',
+            subtitle: group == null ? 'Based on what you watch' : null,
+            trailing: SeeAllButton(onTap: () => widget.onSeeAll(group)),
+            itemCount: items.length,
+            itemWidth: widget.poster,
+            height: widget.height,
+            itemBuilder: (_, i) => MediaCard(item: items[i]),
+          ),
+      ]),
+    );
   }
 }
 
@@ -339,13 +348,22 @@ class _HomeSkeleton extends StatelessWidget {
   const _HomeSkeleton();
 
   @override
-  Widget build(BuildContext context) => ListView(
-        physics: const NeverScrollableScrollPhysics(),
-        children: [
-          Skeleton(height: (MediaQuery.sizeOf(context).height * 0.5).clamp(320.0, 560.0), radius: 0),
-          const SizedBox(height: 24),
-          const SkeletonRow(),
-          const SkeletonRow(),
-        ],
-      );
+  Widget build(BuildContext context) {
+    final pad = context.pagePadding;
+    return ListView(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: EdgeInsets.only(top: 24),
+      children: [
+        Padding(padding: EdgeInsets.symmetric(horizontal: pad), child: const Skeleton(width: 220, height: 28)),
+        const SizedBox(height: 20),
+        Padding(
+          padding: EdgeInsets.only(left: pad),
+          child: Skeleton(height: context.isWide ? 380 : 260, radius: Radii.hero),
+        ),
+        const SizedBox(height: 32),
+        const SkeletonRow(),
+        const SkeletonRow(),
+      ],
+    );
+  }
 }

@@ -199,6 +199,105 @@ class Favorite {
   }
 }
 
+enum SortOption {
+  recent('Recently added', 'recent'),
+  rating('Top rated', 'rating'),
+  year('Release year', 'year'),
+  name('A – Z', 'name');
+
+  const SortOption(this.label, this.param);
+  final String label;
+  final String param;
+}
+
+/// Sort + filters for a catalogue list. Immutable so it can key providers.
+class ListFilter {
+  const ListFilter({this.sort = SortOption.recent, this.minRating, this.yearFrom, this.yearTo});
+  final SortOption sort;
+  final double? minRating;
+  final int? yearFrom;
+  final int? yearTo;
+
+  bool get isDefault => sort == SortOption.recent && minRating == null && yearFrom == null && yearTo == null;
+
+  ListFilter copyWith({SortOption? sort, double? Function()? minRating, int? Function()? yearFrom, int? Function()? yearTo}) =>
+      ListFilter(
+        sort: sort ?? this.sort,
+        minRating: minRating == null ? this.minRating : minRating(),
+        yearFrom: yearFrom == null ? this.yearFrom : yearFrom(),
+        yearTo: yearTo == null ? this.yearTo : yearTo(),
+      );
+
+  Map<String, dynamic> toQuery() => {
+        'sort': sort == SortOption.recent ? null : sort.param,
+        'minRating': minRating,
+        'yearFrom': yearFrom,
+        'yearTo': yearTo,
+      };
+
+  @override
+  bool operator ==(Object other) =>
+      other is ListFilter &&
+      other.sort == sort &&
+      other.minRating == minRating &&
+      other.yearFrom == yearFrom &&
+      other.yearTo == yearTo;
+  @override
+  int get hashCode => Object.hash(sort, minRating, yearFrom, yearTo);
+}
+
+/// One row of watch history, hydrated with its content.
+class WatchEvent {
+  WatchEvent({
+    required this.kind,
+    required this.contentId,
+    required this.item,
+    required this.watchedAt,
+    this.episodeId,
+    this.season,
+    this.episode,
+    this.episodeTitle,
+    this.positionSecs = 0,
+    this.durationSecs,
+    this.progressPct = 0,
+    this.completed = false,
+  });
+
+  final MediaKind kind;
+  final String contentId;
+  final MediaItem? item;
+  final DateTime? watchedAt;
+  final String? episodeId;
+  final int? season;
+  final int? episode;
+  final String? episodeTitle;
+  final int positionSecs;
+  final int? durationSecs;
+  final double progressPct;
+  final bool completed;
+
+  factory WatchEvent.fromJson(Json j) {
+    final kind = MediaKind.parse(j['contentType']);
+    final content = jMap(j['content']);
+    return WatchEvent(
+      kind: kind,
+      contentId: jStr(j['contentId']) ?? '',
+      item: content == null ? null : MediaItem.fromJson(content, kind),
+      watchedAt: jDate(j['watchedAt']),
+      episodeId: jStr(j['episodeId']),
+      season: jInt(j['season']),
+      episode: jInt(j['episode']),
+      episodeTitle: jStr(j['episodeTitle']),
+      positionSecs: jInt(j['positionSecs']) ?? 0,
+      durationSecs: jInt(j['durationSecs']),
+      progressPct: jDouble(j['progressPct']) ?? 0,
+      completed: jBool(j['completed']),
+    );
+  }
+
+  String get episodeLabel => season == null ? '' : 'S$season · E${episode ?? '?'}${episodeTitle != null ? ' · $episodeTitle' : ''}';
+}
+
 class WatchProgress {
   WatchProgress({required this.positionSecs, this.durationSecs, this.completed = false});
   final int positionSecs;

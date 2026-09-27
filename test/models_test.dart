@@ -4,6 +4,7 @@ import 'package:iptv_app/models/account.dart';
 import 'package:iptv_app/models/media.dart';
 
 void main() {
+  _moreTests();
   group('ApiClient.normalizeBaseUrl', () {
     test('adds scheme and /api', () {
       expect(ApiClient.normalizeBaseUrl('192.168.1.5:4000'), 'http://192.168.1.5:4000/api');
@@ -106,5 +107,71 @@ void main() {
     expect(p.host, 'tv.host');
     expect(p.channels, 10);
     expect(p.lastError, 'boom');
+  });
+}
+
+void _moreTests() {
+  group('ListFilter', () {
+    test('default filter sends no sort/filter params', () {
+      final q = const ListFilter().toQuery();
+      expect(q.values.every((v) => v == null), isTrue);
+      expect(const ListFilter().isDefault, isTrue);
+    });
+
+    test('serialises sort, rating and year bounds', () {
+      const f = ListFilter(sort: SortOption.rating, minRating: 7, yearFrom: 2010, yearTo: 2020);
+      expect(f.toQuery(), {'sort': 'rating', 'minRating': 7.0, 'yearFrom': 2010, 'yearTo': 2020});
+      expect(f.copyWith(minRating: () => null).minRating, isNull);
+      expect(f.copyWith(sort: SortOption.name), const ListFilter(sort: SortOption.name, minRating: 7, yearFrom: 2010, yearTo: 2020));
+    });
+  });
+
+  test('Recommendation keeps the seed that produced it', () {
+    final r = Recommendation.fromJson({
+      'type': 'series',
+      'reasons': [
+        {'kind': 'watched', 'seedId': 's1', 'seedName': 'Dune'},
+      ],
+      'content': {'_id': 'x', 'name': 'Foundation'},
+    });
+    expect(r.item.kind, MediaKind.series);
+    expect(r.seedName, 'Dune');
+    expect(r.reasonTitle, 'Because you watched Dune');
+    final saved = Recommendation.fromJson({
+      'type': 'movie',
+      'reasons': [{'kind': 'favorited', 'seedName': 'Heat'}],
+      'content': {'_id': 'y', 'name': 'Collateral'},
+    });
+    expect(saved.reasonTitle, 'Because you saved Heat');
+  });
+
+  test('WatchEvent parses a hydrated history row', () {
+    final e = WatchEvent.fromJson({
+      'contentType': 'series',
+      'contentId': 'c1',
+      'season': 2,
+      'episode': 4,
+      'episodeTitle': 'Pilot',
+      'positionSecs': 300,
+      'durationSecs': 2400,
+      'progressPct': 12.5,
+      'completed': false,
+      'watchedAt': '2026-09-27T10:00:00Z',
+      'content': {'_id': 'c1', 'name': 'Severance'},
+    });
+    expect(e.item!.name, 'Severance');
+    expect(e.episodeLabel, 'S2 · E4 · Pilot');
+    expect(e.progressPct, 12.5);
+    expect(e.watchedAt, isNotNull);
+  });
+
+  test('MediaItem splits provider genre strings', () {
+    final m = MediaItem.fromJson({
+      '_id': 'g',
+      'name': 'G',
+      'details': {'genre': 'Action, Adventure / Sci-Fi', 'durationSecs': '5400'},
+    }, MediaKind.movie);
+    expect(m.genres, ['Action', 'Adventure', 'Sci-Fi']);
+    expect(m.durationSecs, 5400);
   });
 }
