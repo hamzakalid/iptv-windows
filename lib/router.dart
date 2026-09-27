@@ -51,14 +51,8 @@ final routerProvider = Provider<GoRouter>((ref) {
           branch('/series', const BrowseScreen(kind: MediaKind.series)),
           branch('/live', const LiveScreen()),
           branch('/library', const LibraryScreen()),
+          branch('/search', const SearchScreen()),
         ],
-      ),
-      GoRoute(
-        path: '/search',
-        builder: (_, s) => SearchScreen(
-          initialQuery: s.uri.queryParameters['q'],
-          initialScope: int.tryParse(s.uri.queryParameters['scope'] ?? '') ?? 0,
-        ),
       ),
       GoRoute(path: '/settings', builder: (_, _) => const SettingsScreen()),
       GoRoute(path: '/settings/add-playlist', builder: (_, _) => const AddPlaylistScreen()),
@@ -83,5 +77,7 @@ class _Splash extends StatelessWidget {
   const _Splash();
 
   @override
-  Widget build(BuildContext context) => const Scaffold(body: Center(child: CircularProgressIndicator()));
+  Widget build(BuildContext context) => const Scaffold(
+        body: Center(child: SizedBox.square(dimension: 24, child: CircularProgressIndicator(strokeWidth: 2))),
+      );
 }

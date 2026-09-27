@@ -1,24 +1,35 @@
 import 'package:flutter/material.dart';
 
+import '../core/icons.dart';
 import '../core/theme.dart';
 import 'common.dart';
 
+/// Flush-left h5 with an optional muted note and a ghost action.
 class SectionHeader extends StatelessWidget {
-  const SectionHeader(this.title, {super.key, this.subtitle, this.trailing});
+  const SectionHeader(this.title, {super.key, this.subtitle, this.trailing, this.padding});
   final String title;
   final String? subtitle;
   final Widget? trailing;
+  final EdgeInsets? padding;
 
   @override
   Widget build(BuildContext context) {
-    final t = Theme.of(context).textTheme;
+    final pad = context.pagePadding;
     return Padding(
-      padding: EdgeInsets.fromLTRB(context.pagePadding, 0, context.pagePadding, 12),
-      child: Row(children: [
+      padding: padding ?? EdgeInsets.fromLTRB(pad, 0, pad - 8, 10),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
         Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title, style: t.titleLarge?.copyWith(fontSize: 19)),
-            if (subtitle != null) Text(subtitle!, style: t.bodySmall?.copyWith(color: AppColors.textMuted)),
+          child: Row(children: [
+            Flexible(child: Text(title, style: AppText.h5, maxLines: 1, overflow: TextOverflow.ellipsis)),
+            if (subtitle != null) ...[
+              const SizedBox(width: 10),
+              Flexible(
+                child: Text(subtitle!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12, color: AppColors.neutral600)),
+              ),
+            ],
           ]),
         ),
         ?trailing,
@@ -27,18 +38,17 @@ class SectionHeader extends StatelessWidget {
   }
 }
 
-class SeeAllButton extends StatelessWidget {
-  const SeeAllButton({super.key, required this.onTap});
+/// Ghost "See all" / "History" / "Guide" link at the end of a row header.
+class RowAction extends StatelessWidget {
+  const RowAction(this.label, {super.key, required this.onTap});
+  final String label;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) => TextButton(
         onPressed: onTap,
-        style: TextButton.styleFrom(foregroundColor: AppColors.textMuted),
-        child: const Row(mainAxisSize: MainAxisSize.min, children: [
-          Text('See all'),
-          Icon(Icons.chevron_right_rounded, size: 18),
-        ]),
+        style: TextButton.styleFrom(textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+        child: Text(label),
       );
 }
 
@@ -87,7 +97,7 @@ class _ArrowScrollerState extends State<ArrowScroller> {
 
   @override
   Widget build(BuildContext context) {
-    final pad = widget.padding ?? EdgeInsets.symmetric(horizontal: context.pagePadding, vertical: 6);
+    final pad = widget.padding ?? EdgeInsets.fromLTRB(context.pagePadding, 2, context.pagePadding, 6);
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
@@ -122,8 +132,8 @@ class _Arrow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Positioned(
-        left: left ? 4 : null,
-        right: left ? null : 4,
+        left: left ? 6 : null,
+        right: left ? null : 6,
         top: 0,
         bottom: inset,
         child: AnimatedOpacity(
@@ -132,12 +142,16 @@ class _Arrow extends StatelessWidget {
           child: IgnorePointer(
             ignoring: !visible,
             child: Center(
-              child: Material(
-                color: AppColors.surfaceHigh.withValues(alpha: 0.92),
-                shape: const CircleBorder(side: BorderSide(color: AppColors.outline)),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(Radii.md),
+                  boxShadow: Shadows.md,
+                ),
                 child: IconButton(
+                  tooltip: left ? 'Previous' : 'Next',
                   onPressed: onTap,
-                  icon: Icon(left ? Icons.chevron_left_rounded : Icons.chevron_right_rounded, size: 26),
+                  icon: Icon(left ? PhosphorIconsRegular.caretLeft : PhosphorIconsRegular.caretRight, size: 18),
                 ),
               ),
             ),
@@ -146,7 +160,7 @@ class _Arrow extends StatelessWidget {
       );
 }
 
-/// Titled horizontal carousel of cards.
+/// Titled horizontal row of cards.
 class MediaRow extends StatelessWidget {
   const MediaRow({
     super.key,
@@ -157,6 +171,7 @@ class MediaRow extends StatelessWidget {
     required this.height,
     this.subtitle,
     this.trailing,
+    this.arrowInset = 44,
   });
 
   final String title;
@@ -165,19 +180,20 @@ class MediaRow extends StatelessWidget {
   final int itemCount;
   final double itemWidth;
   final double height;
+  final double arrowInset;
   final Widget Function(BuildContext, int) itemBuilder;
 
   @override
   Widget build(BuildContext context) {
     if (itemCount == 0) return const SizedBox.shrink();
     return Padding(
-      padding: const EdgeInsets.only(bottom: 28),
+      padding: const EdgeInsets.only(bottom: 20),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         SectionHeader(title, subtitle: subtitle, trailing: trailing),
         ArrowScroller(
           height: height,
           itemCount: itemCount,
-          arrowInset: 44,
+          arrowInset: arrowInset,
           itemBuilder: (c, i) => SizedBox(width: itemWidth, child: itemBuilder(c, i)),
         ),
       ]),
@@ -185,21 +201,21 @@ class MediaRow extends StatelessWidget {
   }
 }
 
-/// A scrollable row of selectable pills (genres, categories, scopes).
+/// A scrollable row of bordered filter chips (genres, categories).
 class ChipStrip extends StatelessWidget {
-  const ChipStrip({super.key, required this.labels, required this.selected, required this.onSelect, this.leading});
+  const ChipStrip({super.key, required this.labels, required this.selected, required this.onSelect, this.padding});
   final List<String> labels;
   final int selected;
   final ValueChanged<int> onSelect;
-  final Widget? leading;
+  final EdgeInsets? padding;
 
   @override
   Widget build(BuildContext context) => ArrowScroller(
-        height: 48,
-        separator: 8,
+        height: 40,
+        separator: 6,
         itemCount: labels.length,
-        padding: EdgeInsets.symmetric(horizontal: context.pagePadding, vertical: 6),
-        itemBuilder: (_, i) => Pill(labels[i], selected: i == selected, onTap: () => onSelect(i)),
+        padding: padding ?? EdgeInsets.symmetric(horizontal: context.pagePadding, vertical: 4),
+        itemBuilder: (_, i) => Center(child: FilterPill(labels[i], selected: i == selected, onTap: () => onSelect(i))),
       );
 }
 
@@ -213,9 +229,9 @@ class SkeletonRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final pad = context.pagePadding;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 28),
+      padding: const EdgeInsets.only(bottom: 20),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Padding(padding: EdgeInsets.fromLTRB(pad, 0, pad, 14), child: const Skeleton(width: 180, height: 22)),
+        Padding(padding: EdgeInsets.fromLTRB(pad, 0, pad, 12), child: const Skeleton(width: 160, height: 18, radius: Radii.sm)),
         SizedBox(
           height: itemWidth / aspect,
           child: ListView.separated(
@@ -224,7 +240,7 @@ class SkeletonRow extends StatelessWidget {
             padding: EdgeInsets.symmetric(horizontal: pad),
             itemCount: 8,
             separatorBuilder: (_, _) => const SizedBox(width: 14),
-            itemBuilder: (_, _) => Skeleton(width: itemWidth, radius: Radii.card),
+            itemBuilder: (_, _) => Skeleton(width: itemWidth),
           ),
         ),
       ]),

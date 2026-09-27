@@ -85,6 +85,12 @@ class MediaItem {
       .toList();
 
   bool get hasArtwork => logo != null || backdrop != null;
+
+  /// Channel number, when the provider sends one (Xtream `num`).
+  String? get number => jStr(raw['num']) ?? jStr(raw['number']) ?? jStr(details?['num']);
+
+  /// Now/next programme for channels whose rows carry EPG.
+  ChannelEpg get epg => ChannelEpg.fromDetails(details);
 }
 
 /// A recommended item plus the title that led to it ("Because you watched…").

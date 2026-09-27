@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/format.dart';
+import '../../core/icons.dart';
 import '../../core/theme.dart';
 import '../../models/account.dart';
 import '../../models/media.dart';
@@ -26,11 +28,13 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
   String? _group;
   String _query = '';
   ListFilter _filter = const ListFilter();
+  bool _favouritesOnly = false;
+  int? _total;
   final _search = TextEditingController();
   Timer? _debounce;
   bool _shuffling = false;
 
-  bool get _rated => widget.kind != MediaKind.channel;
+  bool get _live => widget.kind == MediaKind.channel;
 
   @override
   void initState() {
@@ -52,6 +56,7 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
   }
 
   void _onSearch(String v) {
+    setState(() {}); // clear button visibility
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 350), () => setState(() => _query = v.trim()));
   }
@@ -61,6 +66,15 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
         MediaKind.series => 'Series',
         MediaKind.channel => 'Live TV',
       };
+
+  List<SortOption> get _sorts => _live ? [SortOption.recent, SortOption.name] : SortOption.values;
+
+  String _sortLabel(SortOption s) => _live && s == SortOption.recent ? 'Channel order' : s.label;
+
+  void _cycleSort() {
+    final i = _sorts.indexOf(_filter.sort);
+    setState(() => _filter = _filter.copyWith(sort: _sorts[(i + 1) % _sorts.length]));
+  }
 
   Future<void> _surprise() async {
     setState(() => _shuffling = true);
@@ -73,7 +87,7 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
           );
       if (!mounted) return;
       if (item == null) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nothing matches these filters.')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nothing matches these filters')));
       } else {
         openItem(context, item);
       }
@@ -84,6 +98,27 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
     }
   }
 
+  void _select(String? g) => setState(() => _group = g);
+
+  String _countLabel(HomeData? home) {
+    final all = switch (widget.kind) {
+      MediaKind.movie => home?.movieCount,
+      MediaKind.series => home?.seriesCount,
+      MediaKind.channel => home?.channelCount,
+    };
+    final noun = _live ? 'channels' : _title.toLowerCase();
+    if (_live && _favouritesOnly) return 'Favourites';
+    final shown = _total;
+    final filtered = _group != null || _query.isNotEmpty || _filter.minRating != null;
+    final parts = <String>[
+      if (shown != null && all != null && filtered) '${formatCount(shown)} of ${formatCount(all)}'
+      else if (all != null) '${formatCount(all)} $noun'
+      else if (shown != null) '${formatCount(shown)} $noun',
+      if (_group != null) _label(_group!),
+    ];
+    return parts.join(' · ');
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.listen(browseIntentProvider, (_, next) {
@@ -92,49 +127,117 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
     final playlistId = ref.watch(activePlaylistProvider);
     final repo = ref.watch(repositoryProvider);
     final cats = ref.watch(categoriesProvider(widget.kind)).value;
+    final home = ref.watch(homeProvider).value;
     final wide = context.isWide;
     final pad = context.pagePadding;
 
-    final header = Padding(
-      padding: EdgeInsets.fromLTRB(pad, 16, pad - (wide ? 0 : 8), 6),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Expanded(
-            child: Text(_group == null ? _title : '$_title · ${_label(_group!)}',
-                maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.headlineMedium),
-          ),
-          if (wide) SizedBox(width: 300, child: _searchField()) else const HeaderActions(),
-        ]),
-        if (!wide) ...[const SizedBox(height: 12), Padding(padding: const EdgeInsets.only(right: 8), child: _searchField())],
-        const SizedBox(height: 12),
-        _Toolbar(
-          filter: _filter,
-          rated: _rated,
-          shuffling: _shuffling,
-          onFilter: (f) => setState(() => _filter = f),
-          onSurprise: _surprise,
+    final controls = <Widget>[
+      SizedBox(width: wide ? (_live ? 300 : 240) : double.infinity, child: _searchField()),
+      if (_live)
+        SegmentedControl<bool>(
+          segments: const [
+            Segment(false, 'All', icon: PhosphorIconsRegular.squaresFour),
+            Segment(true, 'Favourites', icon: PhosphorIconsRegular.star),
+          ],
+          selected: _favouritesOnly,
+          onChanged: (v) => setState(() => _favouritesOnly = v),
+        )
+      else
+        SegmentedControl<double?>(
+          segments: const [
+            Segment(null, 'Any'),
+            Segment(6.0, '6+', icon: PhosphorIconsFill.star),
+            Segment(7.0, '7+', icon: PhosphorIconsFill.star),
+            Segment(8.0, '8+', icon: PhosphorIconsFill.star),
+          ],
+          selected: _filter.minRating,
+          onChanged: (v) => setState(() => _filter = _filter.copyWith(minRating: () => v)),
         ),
+      if (!_favouritesOnly)
+        OutlinedButton.icon(
+          onPressed: _cycleSort,
+          icon: const Icon(PhosphorIconsRegular.sortAscending),
+          label: Text(_sortLabel(_filter.sort)),
+        ),
+      if (!_live)
+        OutlinedButton.icon(
+          onPressed: _shuffling ? null : _surprise,
+          icon: const Icon(PhosphorIconsRegular.shuffle),
+          label: const Text('Surprise me'),
+        ),
+    ];
+
+    final header = Padding(
+      padding: EdgeInsets.fromLTRB(pad, wide ? 20 : 12, wide ? pad : 8, 14),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(_title, style: wide ? AppText.h3 : AppText.h4),
+              const SizedBox(height: 4),
+              Text(_countLabel(home), style: AppText.meta),
+            ]),
+          ),
+          if (wide) Wrap(spacing: 12, runSpacing: 10, crossAxisAlignment: WrapCrossAlignment.center, children: controls)
+          else const HeaderActions(),
+        ]),
+        if (!wide) ...[
+          const SizedBox(height: 12),
+          Padding(padding: const EdgeInsets.only(right: 8), child: controls.first),
+          const SizedBox(height: 10),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(children: [for (final c in controls.skip(1)) Padding(padding: const EdgeInsets.only(right: 8), child: c)]),
+          ),
+        ],
       ]),
     );
 
-    final grid = PagedMediaGrid(
-      queryKey: (playlistId, _group, _query, _filter, repo),
-      kind: widget.kind,
-      emptyTitle: _query.isEmpty ? 'No ${_title.toLowerCase()} match these filters' : 'No results for "$_query"',
-      header: wide || cats == null ? null : _CategoryChips(cats: cats, selected: _group, onSelect: _select),
-      fetch: (offset) => repo.list(widget.kind,
-          playlistId: playlistId, group: _group, q: _query, filter: _filter, offset: offset),
-    );
+    final gridPadding = EdgeInsets.fromLTRB(wide ? 12 : pad, 4, pad, 32);
+    final extras = _live
+        ? _LiveHeader(
+            showRecent: _query.isEmpty && !_favouritesOnly,
+            title: _favouritesOnly ? 'Favourites' : (_group == null ? 'All channels' : _label(_group!)),
+            count: _favouritesOnly ? null : _total,
+            padding: gridPadding,
+          )
+        : null;
+    final chips = wide || cats == null || _favouritesOnly
+        ? null
+        : _CategoryChips(cats: cats, selected: _group, onSelect: _select);
+
+    final Widget grid;
+    if (_live && _favouritesOnly) {
+      grid = _FavouriteChannels(query: _query, group: _group, padding: gridPadding, header: extras);
+    } else {
+      grid = PagedMediaGrid(
+        queryKey: (playlistId, _group, _query, _filter, repo),
+        kind: widget.kind,
+        padding: gridPadding,
+        onTotal: (t) {
+          if (t != _total) setState(() => _total = t);
+        },
+        emptyTitle: _query.isEmpty ? 'Nothing matches these filters.' : 'No ${_live ? 'channels' : _title.toLowerCase()} match "$_query".',
+        header: chips == null && extras == null ? null : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [?chips, ?extras]),
+        fetch: (offset) => repo.list(widget.kind,
+            playlistId: playlistId, group: _group, q: _query, filter: _filter, offset: offset),
+      );
+    }
 
     return Scaffold(
       body: SafeArea(
         bottom: false,
-        child: Column(children: [
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           header,
           Expanded(
             child: wide && cats != null
                 ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    _CategoryList(cats: cats, selected: _group, onSelect: _select),
+                    _CategoryList(
+                      title: _live ? 'Categories' : 'Genres',
+                      cats: cats,
+                      selected: _group,
+                      onSelect: _select,
+                    ),
                     Expanded(child: grid),
                   ])
                 : grid,
@@ -144,22 +247,19 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
     );
   }
 
-  void _select(String? g) => setState(() => _group = g);
-
   Widget _searchField() => SizedBox(
-        height: 42,
+        height: 36,
         child: TextField(
           controller: _search,
           onChanged: _onSearch,
+          style: const TextStyle(fontSize: 14),
           decoration: InputDecoration(
-            hintText: 'Search ${_title.toLowerCase()}',
-            prefixIcon: const Icon(Icons.search_rounded, size: 20),
-            isDense: true,
-            contentPadding: const EdgeInsets.symmetric(vertical: 10),
+            hintText: _live ? 'Search channels or programmes' : 'Search ${_title.toLowerCase()}',
+            prefixIcon: const Icon(PhosphorIconsRegular.magnifyingGlass, size: 16),
             suffixIcon: _search.text.isEmpty
                 ? null
                 : IconButton(
-                    icon: const Icon(Icons.close_rounded, size: 18),
+                    icon: const Icon(PhosphorIconsRegular.x, size: 14),
                     onPressed: () {
                       _search.clear();
                       _onSearch('');
@@ -170,70 +270,79 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
       );
 }
 
-/// Sort menu, rating pills and the "Surprise me" shuffle.
-class _Toolbar extends StatelessWidget {
-  const _Toolbar({
-    required this.filter,
-    required this.rated,
-    required this.shuffling,
-    required this.onFilter,
-    required this.onSurprise,
-  });
-
-  final ListFilter filter;
-  final bool rated;
-  final bool shuffling;
-  final ValueChanged<ListFilter> onFilter;
-  final VoidCallback onSurprise;
+/// Recently watched channels plus the grid's title and count.
+class _LiveHeader extends ConsumerWidget {
+  const _LiveHeader({required this.showRecent, required this.title, required this.count, required this.padding});
+  final bool showRecent;
+  final String title;
+  final int? count;
+  final EdgeInsets padding;
 
   @override
-  Widget build(BuildContext context) {
-    final wide = context.isWide;
-    final sorts = rated ? SortOption.values : [SortOption.recent, SortOption.name];
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(children: [
-        PopupMenuButton<SortOption>(
-          tooltip: 'Sort',
-          initialValue: filter.sort,
-          onSelected: (s) => onFilter(filter.copyWith(sort: s)),
-          itemBuilder: (_) => [
-            for (final s in sorts)
-              PopupMenuItem(
-                value: s,
-                child: Row(children: [
-                  Icon(s == filter.sort ? Icons.check_rounded : null, size: 18),
-                  const SizedBox(width: 8),
-                  Text(s.label),
-                ]),
-              ),
-          ],
-          child: Pill(filter.sort.label, icon: Icons.swap_vert_rounded),
-        ),
-        if (rated) ...[
-          const SizedBox(width: 14),
-          for (final (label, value) in [('Any rating', null), ('6+', 6.0), ('7+', 7.0), ('8+', 8.0)])
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Pill(
-                label,
-                icon: value == null ? null : Icons.star_rounded,
-                selected: filter.minRating == value,
-                onTap: () => onFilter(filter.copyWith(minRating: () => value)),
-              ),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final recent = showRecent ? ref.watch(recentChannelsProvider) : const <MediaItem>[];
+    return Padding(
+      padding: EdgeInsets.fromLTRB(padding.left, 4, 0, 6),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (recent.isNotEmpty) ...[
+          const Eyebrow('Recently watched', padding: EdgeInsets.only(bottom: 6)),
+          SizedBox(
+            height: 52,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: EdgeInsets.only(right: padding.right),
+              itemCount: recent.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
+              itemBuilder: (_, i) => ChannelChip(item: recent[i]),
             ),
-        ],
-        const SizedBox(width: 6),
-        Tooltip(
-          message: 'Pick something at random',
-          child: Pill(
-            wide ? 'Surprise me' : 'Random',
-            icon: shuffling ? Icons.hourglass_top_rounded : Icons.casino_rounded,
-            onTap: shuffling ? null : onSurprise,
           ),
-        ),
+          const SizedBox(height: 18),
+        ],
+        Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
+          Text(title, style: AppText.h5),
+          const SizedBox(width: 10),
+          if (count != null) Text(formatCount(count!), style: const TextStyle(fontSize: 12, color: AppColors.neutral600)),
+        ]),
+        const SizedBox(height: 6),
       ]),
     );
+  }
+}
+
+/// Favourite channels, filtered locally.
+class _FavouriteChannels extends ConsumerWidget {
+  const _FavouriteChannels({required this.query, required this.group, required this.padding, this.header});
+  final String query;
+  final String? group;
+  final EdgeInsets padding;
+  final Widget? header;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final q = query.toLowerCase();
+    final favs = (ref.watch(favoritesProvider).value ?? const <Favorite>[])
+        .where((f) => f.kind == MediaKind.channel)
+        .map((f) => f.item!)
+        .where((c) => group == null || c.group == group || (group == Categories.uncategorized && c.group.isEmpty))
+        .where((c) => q.isEmpty || c.name.toLowerCase().contains(q) || (c.epg.now?.title.toLowerCase().contains(q) ?? false))
+        .toList();
+    return CustomScrollView(slivers: [
+      if (header != null) SliverToBoxAdapter(child: header),
+      SliverPadding(
+        padding: padding,
+        sliver: favs.isEmpty
+            ? SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 48),
+                  child: Text(
+                    q.isEmpty ? 'No favourite channels yet. Use the star on any channel to add it.' : 'No favourites match "$query".',
+                    style: const TextStyle(color: AppColors.textMuted),
+                  ),
+                ),
+              )
+            : MediaGridSliver(items: favs, kind: MediaKind.channel),
+      ),
+    ]);
   }
 }
 
@@ -251,15 +360,15 @@ class _CategoryChips extends StatelessWidget {
   Widget build(BuildContext context) {
     final entries = _entries(cats);
     return SizedBox(
-      height: 52,
+      height: 44,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.symmetric(horizontal: context.pagePadding, vertical: 8),
+        padding: EdgeInsets.fromLTRB(context.pagePadding, 4, context.pagePadding, 8),
         itemCount: entries.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        separatorBuilder: (_, _) => const SizedBox(width: 6),
         itemBuilder: (_, i) {
           final g = entries[i];
-          return Pill(g == null ? 'All' : _label(g), selected: g == selected, onTap: () => onSelect(g));
+          return FilterPill(g == null ? 'All' : _label(g), selected: g == selected, onTap: () => onSelect(g));
         },
       ),
     );
@@ -267,7 +376,8 @@ class _CategoryChips extends StatelessWidget {
 }
 
 class _CategoryList extends StatelessWidget {
-  const _CategoryList({required this.cats, required this.selected, required this.onSelect});
+  const _CategoryList({required this.title, required this.cats, required this.selected, required this.onSelect});
+  final String title;
   final Categories cats;
   final String? selected;
   final ValueChanged<String?> onSelect;
@@ -276,36 +386,18 @@ class _CategoryList extends StatelessWidget {
   Widget build(BuildContext context) {
     final entries = _entries(cats);
     return SizedBox(
-      width: 232,
+      width: 212,
       child: ListView.builder(
-        padding: EdgeInsets.fromLTRB(context.pagePadding, 8, 8, 24),
-        itemCount: entries.length,
+        padding: EdgeInsets.fromLTRB(context.pagePadding, 4, 12, 24),
+        itemCount: entries.length + 1,
         itemBuilder: (_, i) {
-          final g = entries[i];
-          final isSel = g == selected;
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 2),
-            child: Material(
-              color: isSel ? AppColors.surfaceHover : Colors.transparent,
-              borderRadius: BorderRadius.circular(10),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(10),
-                hoverColor: AppColors.surfaceHigh,
-                onTap: () => onSelect(g),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  child: Text(
-                    g == null ? 'All' : _label(g),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: isSel ? AppColors.text : AppColors.textMuted,
-                      fontWeight: isSel ? FontWeight.w700 : FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ),
-            ),
+          if (i == 0) return Eyebrow(title, padding: const EdgeInsets.fromLTRB(10, 6, 10, 6));
+          final g = entries[i - 1];
+          final sel = g == selected;
+          return SideListItem(
+            selected: sel,
+            onTap: () => onSelect(g),
+            child: SideListLabel(g == null ? 'All' : _label(g), selected: sel),
           );
         },
       ),

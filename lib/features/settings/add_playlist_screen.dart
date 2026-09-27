@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/icons.dart';
 import '../../core/json.dart';
 import '../../core/theme.dart';
 import '../../models/account.dart';
@@ -97,23 +98,30 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final t = Theme.of(context).textTheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('Add playlist')),
+      appBar: AppBar(
+        leading: IconButton(
+          tooltip: 'Back (Esc)',
+          onPressed: () => context.pop(),
+          icon: const Icon(PhosphorIconsRegular.arrowLeft),
+        ),
+        title: const Text('Add playlist'),
+      ),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 560),
           child: Form(
             key: _form,
             child: ListView(padding: EdgeInsets.all(context.pagePadding), children: [
-              SegmentedButton<PlaylistType>(
+              SegmentedControl<PlaylistType>(
+                expand: true,
                 segments: const [
-                  ButtonSegment(value: PlaylistType.xtream, icon: Icon(Icons.dns_rounded), label: Text('Xtream Codes')),
-                  ButtonSegment(value: PlaylistType.m3u, icon: Icon(Icons.link_rounded), label: Text('M3U URL')),
+                  Segment(PlaylistType.xtream, 'Xtream Codes', icon: PhosphorIconsRegular.hardDrives),
+                  Segment(PlaylistType.m3u, 'M3U URL', icon: PhosphorIconsRegular.link),
                 ],
-                selected: {_type},
-                onSelectionChanged: (s) => setState(() {
-                  _type = s.first;
+                selected: _type,
+                onChanged: (t) => setState(() {
+                  _type = t;
                   _testResult = null;
                   _error = null;
                 }),
@@ -123,14 +131,14 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
                 _type == PlaylistType.xtream
                     ? 'Recommended. Unlocks EPG, movie details, cast and episode lists.'
                     : 'Any .m3u / .m3u8 playlist link from your provider.',
-                style: t.bodySmall?.copyWith(color: AppColors.textMuted),
+                style: AppText.meta,
               ),
               const SizedBox(height: 24),
               TextFormField(
                 controller: _name,
                 decoration: const InputDecoration(
                   labelText: 'Name (optional)',
-                  prefixIcon: Icon(Icons.label_outline_rounded),
+                  prefixIcon: Icon(PhosphorIconsRegular.tag, size: 16),
                 ),
               ),
               const SizedBox(height: 14),
@@ -142,7 +150,7 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
                   decoration: const InputDecoration(
                     labelText: 'Playlist URL',
                     hintText: 'https://provider.com/get.php?…',
-                    prefixIcon: Icon(Icons.link_rounded),
+                    prefixIcon: Icon(PhosphorIconsRegular.link, size: 16),
                   ),
                 )
               else ...[
@@ -153,21 +161,21 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
                   decoration: const InputDecoration(
                     labelText: 'Server URL',
                     hintText: 'http://provider.com:8080',
-                    prefixIcon: Icon(Icons.dns_outlined),
+                    prefixIcon: Icon(PhosphorIconsRegular.hardDrives, size: 16),
                   ),
                 ),
                 const SizedBox(height: 14),
                 TextFormField(
                   controller: _user,
                   validator: _required,
-                  decoration: const InputDecoration(labelText: 'Username', prefixIcon: Icon(Icons.person_outline)),
+                  decoration: const InputDecoration(labelText: 'Username', prefixIcon: Icon(PhosphorIconsRegular.user, size: 16)),
                 ),
                 const SizedBox(height: 14),
                 TextFormField(
                   controller: _pass,
                   obscureText: true,
                   validator: _required,
-                  decoration: const InputDecoration(labelText: 'Password', prefixIcon: Icon(Icons.lock_outline)),
+                  decoration: const InputDecoration(labelText: 'Password', prefixIcon: Icon(PhosphorIconsRegular.lock, size: 16)),
                 ),
               ],
               const SizedBox(height: 20),
@@ -178,11 +186,11 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
                   margin: const EdgeInsets.only(bottom: 16),
                   decoration: BoxDecoration(
                     color: AppColors.danger.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(Radii.md),
                     border: Border.all(color: AppColors.danger.withValues(alpha: 0.4)),
                   ),
                   child: Row(children: [
-                    const Icon(Icons.error_outline_rounded, color: AppColors.danger),
+                    const Icon(PhosphorIconsRegular.warningCircle, color: AppColors.danger),
                     const SizedBox(width: 10),
                     Expanded(child: Text(_error!)),
                   ]),
@@ -190,21 +198,24 @@ class _AddPlaylistScreenState extends ConsumerState<AddPlaylistScreen> {
               Row(children: [
                 Expanded(
                   child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(minimumSize: const Size(0, 40)),
                     onPressed: _testing || _saving ? null : _test,
                     icon: _testing
-                        ? const SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.network_check_rounded),
+                        ? const SizedBox.square(dimension: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(PhosphorIconsRegular.plugsConnected),
                     label: const Text('Test'),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   flex: 2,
-                  child: GradientButton(
-                    label: 'Save playlist',
-                    icon: Icons.check_rounded,
-                    loading: _saving,
-                    onPressed: _testing ? null : _save,
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(minimumSize: const Size(0, 40)),
+                    onPressed: _testing || _saving ? null : _save,
+                    icon: _saving
+                        ? const SizedBox.square(dimension: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(PhosphorIconsRegular.check),
+                    label: const Text('Save playlist'),
                   ),
                 ),
               ]),
@@ -238,22 +249,22 @@ class _TestResult extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(Radii.md),
         border: Border.all(color: color.withValues(alpha: 0.4)),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Icon(valid ? Icons.check_circle_rounded : Icons.cancel_rounded, color: color),
+          Icon(valid ? PhosphorIconsFill.checkCircle : PhosphorIconsFill.xCircle, color: color),
           const SizedBox(width: 10),
           Text(valid ? 'Connection successful' : 'Connection failed',
-              style: const TextStyle(fontWeight: FontWeight.w700)),
+              style: const TextStyle(fontWeight: FontWeight.w500)),
         ]),
         for (final (k, v) in rows)
           Padding(
             padding: const EdgeInsets.only(top: 8, left: 34),
             child: Row(children: [
               SizedBox(width: 110, child: Text(k, style: const TextStyle(color: AppColors.textMuted))),
-              Expanded(child: Text(v, style: const TextStyle(fontWeight: FontWeight.w600))),
+              Expanded(child: Text(v, style: const TextStyle(fontWeight: FontWeight.w500))),
             ]),
           ),
       ]),

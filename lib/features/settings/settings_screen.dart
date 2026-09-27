@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/format.dart';
+import '../../core/icons.dart';
 import '../../core/theme.dart';
 import '../../models/account.dart';
 import '../../state/providers.dart';
@@ -20,36 +21,47 @@ class SettingsScreen extends ConsumerWidget {
     final pad = context.pagePadding;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
+      appBar: AppBar(
+        leading: IconButton(
+          tooltip: 'Back (Esc)',
+          onPressed: () => context.canPop() ? context.pop() : context.go('/home'),
+          icon: const Icon(PhosphorIconsRegular.arrowLeft),
+        ),
+        title: const Text('Settings'),
+      ),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 860),
           child: RefreshIndicator(
             onRefresh: () => ref.refresh(playlistsProvider.future),
-            child: ListView(padding: EdgeInsets.symmetric(vertical: 16), children: [
+            child: ListView(padding: const EdgeInsets.symmetric(vertical: 16), children: [
               Padding(
                 padding: EdgeInsets.symmetric(horizontal: pad),
                 child: _AccountCard(email: session?.user?.email ?? '', server: session?.serverUrl ?? ''),
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 28),
               SectionHeader(
                 'Playlists',
                 subtitle: 'Your IPTV sources',
-                trailing: FilledButton.tonalIcon(
+                padding: EdgeInsets.fromLTRB(pad, 0, pad, 10),
+                trailing: OutlinedButton.icon(
                   onPressed: () => context.push('/settings/add-playlist'),
-                  icon: const Icon(Icons.add_rounded),
-                  label: const Text('Add'),
+                  icon: const Icon(PhosphorIconsRegular.plus),
+                  label: const Text('Add playlist'),
                 ),
               ),
               playlists.when(
-                loading: () => const Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator())),
+                loading: () => const Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Center(child: SizedBox.square(dimension: 22, child: CircularProgressIndicator(strokeWidth: 2))),
+                ),
                 error: (e, _) => ErrorView(error: e, onRetry: () => ref.invalidate(playlistsProvider)),
                 data: (list) => list.isEmpty
-                    ? const EmptyState(icon: Icons.playlist_add_rounded, title: 'No playlists yet')
+                    ? const EmptyState(icon: PhosphorIconsRegular.playlist, title: 'No playlists yet')
                     : Column(children: [
                         for (final p in list)
                           Padding(
-                            padding: EdgeInsets.fromLTRB(pad, 0, pad, 12),
+                            padding: EdgeInsets.fromLTRB(pad, 0, pad, 10),
                             child: _PlaylistCard(
                               playlist: p,
                               // With no explicit choice the backend uses the newest active one.
@@ -62,21 +74,21 @@ class SettingsScreen extends ConsumerWidget {
               Padding(
                 padding: EdgeInsets.symmetric(horizontal: pad),
                 child: OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger),
+                  style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger, iconColor: AppColors.danger),
                   onPressed: () async {
                     final ok = await showDialog<bool>(
                       context: context,
                       builder: (c) => AlertDialog(
                         title: const Text('Sign out?'),
                         actions: [
-                          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+                          OutlinedButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
                           FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Sign out')),
                         ],
                       ),
                     );
                     if (ok == true) await ref.read(sessionProvider.notifier).signOut();
                   },
-                  icon: const Icon(Icons.logout_rounded),
+                  icon: const Icon(PhosphorIconsRegular.signOut),
                   label: const Text('Sign out'),
                 ),
               ),
@@ -94,43 +106,25 @@ class _AccountCard extends StatelessWidget {
   final String server;
 
   @override
-  Widget build(BuildContext context) {
-    final t = Theme.of(context).textTheme;
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        gradient: LinearGradient(colors: [
-          AppColors.primary.withValues(alpha: 0.35),
-          AppColors.accent.withValues(alpha: 0.2),
-        ]),
-        border: Border.all(color: Colors.white12),
-      ),
-      child: Row(children: [
-        CircleAvatar(
-          radius: 28,
-          backgroundColor: Colors.white.withValues(alpha: 0.15),
-          child: Text(email.isEmpty ? '?' : email[0].toUpperCase(),
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: Colors.white)),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(email, style: t.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 4),
-            Row(children: [
-              const Icon(Icons.dns_outlined, size: 14, color: Colors.white70),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(server, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: t.bodySmall?.copyWith(color: Colors.white70)),
-              ),
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(Radii.md)),
+        child: Row(children: [
+          Avatar(email, size: 44),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(email, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+              const SizedBox(height: 4),
+              Row(children: [
+                const Icon(PhosphorIconsRegular.hardDrives, size: 14, color: AppColors.neutral500),
+                const SizedBox(width: 6),
+                Expanded(child: Text(server, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta)),
+              ]),
             ]),
-          ]),
-        ),
-      ]),
-    );
-  }
+          ),
+        ]),
+      );
 }
 
 class _PlaylistCard extends ConsumerWidget {
@@ -153,7 +147,6 @@ class _PlaylistCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final p = playlist;
     final repo = ref.read(repositoryProvider);
-    final t = Theme.of(context).textTheme;
     final (color, label) = switch (p.status) {
       PlaylistStatus.active => (AppColors.success, 'Active'),
       PlaylistStatus.syncing => (AppColors.warning, 'Syncing'),
@@ -161,106 +154,103 @@ class _PlaylistCard extends ConsumerWidget {
       PlaylistStatus.error => (AppColors.danger, 'Error'),
     };
 
-    return Card(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
-        side: BorderSide(color: selected ? AppColors.primary : AppColors.outline, width: selected ? 1.5 : 1),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(18),
-        onTap: () {
-          ref.read(activePlaylistProvider.notifier).select(p.id);
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Now watching from "${p.name}"')));
-        },
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(color: AppColors.surfaceHigh, borderRadius: BorderRadius.circular(12)),
-                child: Icon(p.type == PlaylistType.xtream ? Icons.dns_rounded : Icons.link_rounded,
-                    color: AppColors.primary),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Row(children: [
-                    Flexible(child: Text(p.name, style: t.titleMedium?.copyWith(fontWeight: FontWeight.w700))),
-                    if (selected) ...[
-                      const SizedBox(width: 8),
-                      const Icon(Icons.check_circle_rounded, size: 18, color: AppColors.primary),
-                    ],
-                  ]),
-                  Text(
-                    '${p.type == PlaylistType.xtream ? 'Xtream Codes' : 'M3U'}${p.host != null ? ' · ${p.host}' : ''}',
-                    style: t.bodySmall?.copyWith(color: AppColors.textMuted),
-                  ),
-                ]),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  if (p.isBusy)
-                    SizedBox.square(dimension: 10, child: CircularProgressIndicator(strokeWidth: 1.5, color: color))
-                  else
-                    Icon(Icons.circle, size: 8, color: color),
-                  const SizedBox(width: 6),
-                  Text(label, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w700)),
-                ]),
-              ),
-            ]),
-            const SizedBox(height: 14),
-            Wrap(spacing: 8, runSpacing: 8, children: [
-              MetaChip('${formatCount(p.channels)} channels', icon: Icons.live_tv_rounded),
-              MetaChip('${formatCount(p.movies)} movies', icon: Icons.movie_outlined),
-              MetaChip('${formatCount(p.series)} series', icon: Icons.video_library_outlined),
-            ]),
-            if (p.lastError != null && p.status == PlaylistStatus.error) ...[
-              const SizedBox(height: 10),
-              Text(p.lastError!, style: t.bodySmall?.copyWith(color: AppColors.danger)),
-            ],
-            const SizedBox(height: 6),
-            Row(children: [
-              Text('Synced ${timeAgo(p.lastSyncedAt)}', style: t.bodySmall?.copyWith(color: AppColors.textMuted)),
-              const Spacer(),
-              TextButton.icon(
-                onPressed: p.isBusy ? null : () => _run(context, ref, () => repo.syncPlaylist(p.id), 'Sync started'),
-                icon: const Icon(Icons.sync_rounded, size: 18),
-                label: const Text('Sync'),
-              ),
-              TextButton.icon(
-                style: TextButton.styleFrom(foregroundColor: AppColors.danger),
-                onPressed: () async {
-                  final ok = await showDialog<bool>(
-                    context: context,
-                    builder: (c) => AlertDialog(
-                      title: Text('Delete "${p.name}"?'),
-                      content: const Text('The playlist will be removed from your account.'),
-                      actions: [
-                        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
-                        FilledButton(
-                          style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
-                          onPressed: () => Navigator.pop(c, true),
-                          child: const Text('Delete'),
-                        ),
-                      ],
-                    ),
-                  );
-                  if (ok != true || !context.mounted) return;
-                  if (ref.read(activePlaylistProvider) == p.id) ref.read(activePlaylistProvider.notifier).select(null);
-                  await _run(context, ref, () => repo.deletePlaylist(p.id), 'Playlist deleted');
-                },
-                icon: const Icon(Icons.delete_outline_rounded, size: 18),
-                label: const Text('Delete'),
-              ),
-            ]),
-          ]),
+    return Hoverable(
+      color: AppColors.surface,
+      ring: Shadows.ringFlat,
+      onTap: () {
+        ref.read(activePlaylistProvider.notifier).select(p.id);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Now watching from "${p.name}"')));
+      },
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 14, 10, 8),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(Radii.md),
+          border: Border.all(color: selected ? AppColors.accent : Colors.transparent),
         ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(color: AppColors.neutral900, borderRadius: BorderRadius.circular(Radii.md)),
+              child: Icon(p.type == PlaylistType.xtream ? PhosphorIconsRegular.hardDrives : PhosphorIconsRegular.link,
+                  size: 18, color: AppColors.accent),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Flexible(child: Text(p.name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500))),
+                  if (selected) ...[
+                    const SizedBox(width: 8),
+                    const Tag('Watching', tone: TagTone.accent),
+                  ],
+                ]),
+                const SizedBox(height: 2),
+                Text(
+                  '${p.type == PlaylistType.xtream ? 'Xtream Codes' : 'M3U'}${p.host != null ? ' · ${p.host}' : ''}',
+                  style: AppText.meta,
+                ),
+              ]),
+            ),
+            const SizedBox(width: 8),
+            if (p.isBusy)
+              SizedBox.square(dimension: 10, child: CircularProgressIndicator(strokeWidth: 1.5, color: color))
+            else
+              Container(width: 7, height: 7, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+            const SizedBox(width: 6),
+            Text(label, style: TextStyle(color: color, fontSize: 12)),
+            const SizedBox(width: 6),
+          ]),
+          const SizedBox(height: 12),
+          Wrap(spacing: 6, runSpacing: 6, children: [
+            Tag('${formatCount(p.channels)} channels', icon: PhosphorIconsRegular.broadcast),
+            Tag('${formatCount(p.movies)} movies', icon: PhosphorIconsRegular.filmStrip),
+            Tag('${formatCount(p.series)} series', icon: PhosphorIconsRegular.televisionSimple),
+          ]),
+          if (p.lastError != null && p.status == PlaylistStatus.error) ...[
+            const SizedBox(height: 10),
+            Text(p.lastError!, style: const TextStyle(fontSize: 12.5, color: AppColors.danger)),
+          ],
+          const SizedBox(height: 4),
+          Row(children: [
+            Text('Synced ${timeAgo(p.lastSyncedAt)}', style: AppText.meta),
+            const Spacer(),
+            TextButton.icon(
+              onPressed: p.isBusy ? null : () => _run(context, ref, () => repo.syncPlaylist(p.id), 'Sync started'),
+              icon: const Icon(PhosphorIconsRegular.arrowsClockwise),
+              label: const Text('Sync'),
+            ),
+            TextButton.icon(
+              style: TextButton.styleFrom(foregroundColor: AppColors.danger, iconColor: AppColors.danger),
+              onPressed: () async {
+                final ok = await showDialog<bool>(
+                  context: context,
+                  builder: (c) => AlertDialog(
+                    title: Text('Delete "${p.name}"?'),
+                    content: const Text('The playlist will be removed from your account.'),
+                    actions: [
+                      OutlinedButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+                      FilledButton(
+                        style: FilledButton.styleFrom(
+                          foregroundColor: AppColors.danger,
+                          side: const BorderSide(color: AppColors.danger),
+                        ),
+                        onPressed: () => Navigator.pop(c, true),
+                        child: const Text('Delete'),
+                      ),
+                    ],
+                  ),
+                );
+                if (ok != true || !context.mounted) return;
+                if (ref.read(activePlaylistProvider) == p.id) ref.read(activePlaylistProvider.notifier).select(null);
+                await _run(context, ref, () => repo.deletePlaylist(p.id), 'Playlist deleted');
+              },
+              icon: const Icon(PhosphorIconsRegular.trash),
+              label: const Text('Delete'),
+            ),
+          ]),
+        ]),
       ),
     );
   }

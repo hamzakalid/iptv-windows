@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/icons.dart';
 import '../../core/theme.dart';
 import '../../state/providers.dart';
 import '../../widgets/common.dart';
@@ -53,7 +54,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final t = Theme.of(context).textTheme;
     final wide = context.isWide;
 
     final form = Form(
@@ -64,11 +64,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (!wide) ...[const _Logo(), const SizedBox(height: 32)],
-            Text(_signup ? 'Create your account' : 'Welcome back', style: t.headlineMedium),
+            Text(_signup ? 'Create your account' : 'Welcome back', style: AppText.h3),
             const SizedBox(height: 6),
             Text(
               _signup ? 'Start streaming in under a minute.' : 'Sign in to continue watching.',
-              style: t.bodyMedium?.copyWith(color: AppColors.textMuted),
+              style: const TextStyle(fontSize: 14, color: AppColors.textMuted),
             ),
             const SizedBox(height: 28),
             TextFormField(
@@ -76,7 +76,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               keyboardType: TextInputType.emailAddress,
               autofillHints: const [AutofillHints.email],
               textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(hintText: 'Email', prefixIcon: Icon(Icons.alternate_email_rounded)),
+              decoration: const InputDecoration(hintText: 'Email', prefixIcon: Icon(PhosphorIconsRegular.at, size: 16)),
               validator: (v) => (v == null || !v.contains('@')) ? 'Enter a valid email' : null,
             ),
             const SizedBox(height: 14),
@@ -87,10 +87,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               onFieldSubmitted: (_) => _submit(),
               decoration: InputDecoration(
                 hintText: 'Password',
-                prefixIcon: const Icon(Icons.lock_outline_rounded),
+                prefixIcon: const Icon(PhosphorIconsRegular.lock, size: 16),
                 suffixIcon: IconButton(
+                  tooltip: _obscure ? 'Show password' : 'Hide password',
                   onPressed: () => setState(() => _obscure = !_obscure),
-                  icon: Icon(_obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                  icon: Icon(_obscure ? PhosphorIconsRegular.eye : PhosphorIconsRegular.eyeSlash, size: 16),
                 ),
               ),
               validator: (v) => (v == null || v.length < 8) ? 'At least 8 characters' : null,
@@ -100,7 +101,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               alignment: Alignment.centerLeft,
               child: TextButton.icon(
                 onPressed: () => setState(() => _showServer = !_showServer),
-                icon: Icon(_showServer ? Icons.expand_less_rounded : Icons.dns_outlined, size: 18),
+                icon: Icon(_showServer ? PhosphorIconsRegular.caretUp : PhosphorIconsRegular.hardDrives),
                 label: Text(_showServer ? 'Hide server settings' : 'Server: ${_server.text}'),
               ),
             ),
@@ -115,7 +116,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         onChanged: (_) => setState(() {}),
                         decoration: const InputDecoration(
                           hintText: 'http://192.168.1.10:4000',
-                          prefixIcon: Icon(Icons.dns_outlined),
+                          prefixIcon: Icon(PhosphorIconsRegular.hardDrives, size: 16),
                           helperText: 'Address of your IPTV backend',
                         ),
                         validator: (v) => (v == null || v.trim().isEmpty) ? 'Server address is required' : null,
@@ -128,11 +129,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: AppColors.danger.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(Radii.md),
                   border: Border.all(color: AppColors.danger.withValues(alpha: 0.4)),
                 ),
                 child: Row(children: [
-                  const Icon(Icons.error_outline_rounded, color: AppColors.danger, size: 20),
+                  const Icon(PhosphorIconsRegular.warningCircle, color: AppColors.danger, size: 20),
                   const SizedBox(width: 10),
                   Expanded(child: Text(_error!)),
                 ]),
@@ -140,10 +141,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               const SizedBox(height: 14),
             ],
             const SizedBox(height: 8),
-            GradientButton(
-              label: _signup ? 'Create account' : 'Sign in',
-              loading: _busy,
-              onPressed: _submit,
+            FilledButton(
+              style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(40)),
+              onPressed: _busy ? null : _submit,
+              child: _busy
+                  ? const SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  : Text(_signup ? 'Create account' : 'Sign in'),
             ),
             const SizedBox(height: 16),
             Row(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -196,15 +199,21 @@ class _Logo extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Row(children: [
         Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(gradient: AppColors.brandGradient, borderRadius: BorderRadius.circular(14)),
-          child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 26),
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            border: Border.all(color: AppColors.accent),
+            borderRadius: BorderRadius.circular(Radii.md),
+          ),
+          child: const Icon(PhosphorIconsFill.play, size: 18, color: AppColors.accent),
         ),
         const SizedBox(width: 12),
-        Text(appName, style: Theme.of(context).textTheme.headlineSmall),
+        const Text(appName, style: AppText.h4),
       ]);
 }
 
+/// A single field of saturated indigo, the system's one "presence" move,
+/// fading into the ground.
 class _Backdrop extends StatelessWidget {
   const _Backdrop();
 
@@ -214,8 +223,8 @@ class _Backdrop extends StatelessWidget {
           gradient: RadialGradient(
             center: Alignment(-0.6, -0.8),
             radius: 1.4,
-            colors: [Color(0xFF2A1655), Color(0xFF16102A), AppColors.bg],
-            stops: [0, 0.45, 1],
+            colors: [AppColors.section, AppColors.bg],
+            stops: [0, 0.75],
           ),
         ),
       );
@@ -225,33 +234,32 @@ class _Showcase extends StatelessWidget {
   const _Showcase();
 
   @override
-  Widget build(BuildContext context) {
-    final t = Theme.of(context).textTheme;
-    return Padding(
-      padding: const EdgeInsets.all(56),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _Logo(),
-          const Spacer(),
-          ShaderMask(
-            shaderCallback: (r) => AppColors.brandGradient.createShader(r),
-            child: Text('All your TV.\nOne beautiful app.',
-                style: t.displayMedium?.copyWith(color: Colors.white, height: 1.1)),
-          ),
-          const SizedBox(height: 20),
-          Text('Live channels, movies and series from your IPTV provider —\nwith smart recommendations and synced progress.',
-              style: t.titleMedium?.copyWith(color: AppColors.textMuted, fontWeight: FontWeight.w400, height: 1.5)),
-          const SizedBox(height: 36),
-          const Wrap(spacing: 12, runSpacing: 12, children: [
-            MetaChip('Live TV with EPG', icon: Icons.live_tv_rounded),
-            MetaChip('Movies & Series', icon: Icons.movie_outlined),
-            MetaChip('Resume anywhere', icon: Icons.sync_rounded),
-            MetaChip('Xtream & M3U', icon: Icons.playlist_play_rounded),
-          ]),
-          const Spacer(),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => const Padding(
+        padding: EdgeInsets.all(56),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _Logo(),
+            Spacer(),
+            Text('All your TV.\nOne quiet app.', style: AppText.h1),
+            SizedBox(height: 18),
+            SizedBox(
+              width: 520,
+              child: Text(
+                'Live channels, movies and series from your IPTV provider, with a programme guide, '
+                'recommendations and synced progress.',
+                style: TextStyle(fontSize: 15, height: 1.55, color: AppColors.neutral400),
+              ),
+            ),
+            SizedBox(height: 28),
+            Wrap(spacing: 6, runSpacing: 6, children: [
+              Tag('Live TV with EPG', icon: PhosphorIconsRegular.broadcast),
+              Tag('Movies & series', icon: PhosphorIconsRegular.filmStrip),
+              Tag('Resume anywhere', icon: PhosphorIconsRegular.arrowsClockwise),
+              Tag('Xtream & M3U', icon: PhosphorIconsRegular.playlist),
+            ]),
+            Spacer(),
+          ],
+        ),
+      );
 }

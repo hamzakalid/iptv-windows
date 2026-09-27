@@ -1,425 +1,251 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/format.dart';
+import '../core/icons.dart';
 import '../core/theme.dart';
 import '../models/account.dart';
-import '../models/media.dart';
 import '../state/providers.dart';
 import 'common.dart';
 import 'media_cards.dart';
 
 class _Dest {
-  const _Dest(this.label, this.icon, this.selectedIcon, this.branch, {this.location});
+  const _Dest(this.label, this.icon, this.selectedIcon);
   final String label;
   final IconData icon;
   final IconData selectedIcon;
-  final int branch;
-  final String? location;
 }
 
-const _mobileDests = [
-  _Dest('Home', Icons.home_outlined, Icons.home_rounded, 0),
-  _Dest('Movies', Icons.movie_outlined, Icons.movie_rounded, 1),
-  _Dest('Series', Icons.video_library_outlined, Icons.video_library_rounded, 2),
-  _Dest('Live TV', Icons.live_tv_outlined, Icons.live_tv_rounded, 3),
-  _Dest('Library', Icons.bookmark_border_rounded, Icons.bookmark_rounded, 4),
+/// One per shell branch, in branch order.
+const _dests = [
+  _Dest('Home', PhosphorIconsRegular.house, PhosphorIconsFill.house),
+  _Dest('Movies', PhosphorIconsRegular.filmStrip, PhosphorIconsFill.filmStrip),
+  _Dest('Series', PhosphorIconsRegular.televisionSimple, PhosphorIconsFill.televisionSimple),
+  _Dest('Live TV', PhosphorIconsRegular.broadcast, PhosphorIconsFill.broadcast),
+  _Dest('Library', PhosphorIconsRegular.bookmarkSimple, PhosphorIconsFill.bookmarkSimple),
+  _Dest('Search', PhosphorIconsRegular.magnifyingGlass, PhosphorIconsFill.magnifyingGlass),
 ];
 
-const _sidebarMenu = [
-  _Dest('Home', Icons.home_outlined, Icons.home_rounded, 0),
-  _Dest('Movies', Icons.movie_outlined, Icons.movie_rounded, 1),
-  _Dest('Series', Icons.video_library_outlined, Icons.video_library_rounded, 2),
-  _Dest('Live TV', Icons.live_tv_outlined, Icons.live_tv_rounded, 3),
-];
+const searchBranch = 5;
 
-const _sidebarLibrary = [
-  _Dest('My List', Icons.favorite_border_rounded, Icons.favorite_rounded, 4, location: '/library'),
-  _Dest('History', Icons.history_rounded, Icons.history_rounded, 4, location: '/library?tab=history'),
-];
+/// Focus for the search field, so "/" can jump straight into it.
+final searchFocusProvider = Provider<FocusNode>((ref) {
+  final node = FocusNode(debugLabel: 'search');
+  ref.onDispose(node.dispose);
+  return node;
+});
 
-/// Bottom navigation on phones; sidebar + top bar on tablets and desktop.
-class AppShell extends StatelessWidget {
+/// Switches branch; landing on Search puts the cursor in its field.
+void _goBranch(WidgetRef ref, StatefulNavigationShell shell, int i) {
+  shell.goBranch(i, initialLocation: i == shell.currentIndex);
+  if (i == searchBranch) {
+    WidgetsBinding.instance.addPostFrameCallback((_) => ref.read(searchFocusProvider).requestFocus());
+  }
+}
+
+/// Icon rail on tablets and desktop; bottom navigation on phones.
+class AppShell extends ConsumerWidget {
   const AppShell({super.key, required this.shell});
   final StatefulNavigationShell shell;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (context.isWide) {
       return Scaffold(
         body: Row(children: [
-          _Sidebar(shell: shell),
-          const VerticalDivider(width: 1),
-          Expanded(
-            child: Column(children: [
-              const TopBar(),
-              Expanded(child: shell),
-            ]),
-          ),
+          _Rail(shell: shell),
+          Expanded(child: shell),
         ]),
       );
     }
     return Scaffold(
       body: shell,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: shell.currentIndex,
-        onDestinationSelected: (i) => shell.goBranch(i, initialLocation: i == shell.currentIndex),
-        destinations: [
-          for (final d in _mobileDests)
-            NavigationDestination(icon: Icon(d.icon), selectedIcon: Icon(d.selectedIcon), label: d.label),
-        ],
+      bottomNavigationBar: DecoratedBox(
+        decoration: BoxDecoration(border: Border(top: BorderSide(color: AppColors.wash(0.06)))),
+        child: NavigationBar(
+          selectedIndex: shell.currentIndex,
+          onDestinationSelected: (i) => _goBranch(ref, shell, i),
+          destinations: [
+            for (final d in _dests)
+              NavigationDestination(icon: Icon(d.icon), selectedIcon: Icon(d.selectedIcon), label: d.label),
+          ],
+        ),
       ),
     );
   }
 }
 
+/// App-wide keys outside the player: "/" jumps to search, Esc leaves a
+/// detail page. Sits above the navigator so every route bubbles up to it.
+class AppKeys extends ConsumerWidget {
+  const AppKeys({super.key, required this.router, required this.child});
+  final GoRouter router;
+  final Widget child;
+
+  static bool get _editing =>
+      FocusManager.instance.primaryFocus?.context?.findAncestorWidgetOfExactType<EditableText>() != null;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => Focus(
+        canRequestFocus: false,
+        skipTraversal: true,
+        onKeyEvent: (_, event) {
+          if (event is! KeyDownEvent) return KeyEventResult.ignored;
+          final path = router.state.uri.path;
+          if (path == '/player' || path == '/login') return KeyEventResult.ignored;
+          if (event.logicalKey == LogicalKeyboardKey.escape) {
+            if (_editing) {
+              FocusManager.instance.primaryFocus?.unfocus();
+              return KeyEventResult.handled;
+            }
+            if (router.canPop()) {
+              router.pop();
+              return KeyEventResult.handled;
+            }
+            return KeyEventResult.ignored;
+          }
+          if (event.character == '/' && !_editing) {
+            router.go('/search');
+            WidgetsBinding.instance.addPostFrameCallback((_) => ref.read(searchFocusProvider).requestFocus());
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        },
+        child: child,
+      );
+}
+
 // ---------------------------------------------------------------------------
-// Sidebar
+// Rail
 // ---------------------------------------------------------------------------
 
-class _Sidebar extends ConsumerWidget {
-  const _Sidebar({required this.shell});
+class _Rail extends ConsumerWidget {
+  const _Rail({required this.shell});
   final StatefulNavigationShell shell;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final expanded = context.isExpanded;
-    final t = Theme.of(context).textTheme;
-    final location = GoRouterState.of(context).uri.toString();
-    final continueWatching = ref.watch(homeProvider).value?.continueWatching ?? const <ContinueItem>[];
-
-    bool isSelected(_Dest d) {
-      if (d.branch != shell.currentIndex) return false;
-      if (d.location == null) return true;
-      final wantsHistory = d.location!.contains('tab=history');
-      return location.contains('tab=history') == wantsHistory;
-    }
-
-    void go(_Dest d) {
-      if (d.location != null) {
-        context.go(d.location!);
-      } else {
-        shell.goBranch(d.branch, initialLocation: d.branch == shell.currentIndex);
-      }
-    }
-
-    Widget label(String text) => expanded
-        ? Padding(
-            padding: const EdgeInsets.fromLTRB(14, 18, 14, 6),
-            child: Text(text.toUpperCase(),
-                style: t.labelSmall?.copyWith(color: AppColors.textMuted, letterSpacing: 1.2, fontWeight: FontWeight.w700)),
-          )
-        : const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Divider());
-
-    return Container(
-      width: expanded ? 236 : 84,
-      color: AppColors.surface,
-      padding: const EdgeInsets.fromLTRB(12, 20, 12, 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _Logo(expanded: expanded),
-          const SizedBox(height: 16),
-          Expanded(
-            child: ListView(
-              padding: EdgeInsets.zero,
-              children: [
-                label('Menu'),
-                for (final d in _sidebarMenu)
-                  _NavItem(dest: d, selected: isSelected(d), expanded: expanded, onTap: () => go(d)),
-                label('Library'),
-                for (final d in _sidebarLibrary)
-                  _NavItem(dest: d, selected: isSelected(d), expanded: expanded, onTap: () => go(d)),
-                if (expanded && continueWatching.isNotEmpty) ...[
-                  label('Continue watching'),
-                  for (final c in continueWatching.take(4)) _ContinueTile(entry: c),
-                ],
-              ],
+  Widget build(BuildContext context, WidgetRef ref) => Container(
+        width: 60,
+        padding: const EdgeInsets.fromLTRB(0, 14, 0, 12),
+        decoration: BoxDecoration(
+          color: AppColors.rail,
+          border: Border(right: BorderSide(color: AppColors.wash(0.06))),
+        ),
+        child: Column(children: [
+          Tooltip(
+            message: appName,
+            child: Container(
+              width: 34,
+              height: 34,
+              margin: const EdgeInsets.only(bottom: 14),
+              decoration: BoxDecoration(
+                border: Border.all(color: AppColors.accent),
+                borderRadius: BorderRadius.circular(Radii.md),
+              ),
+              child: const Icon(PhosphorIconsFill.play, size: 16, color: AppColors.accent),
             ),
           ),
-          _NavItem(
-            dest: const _Dest('Settings', Icons.settings_outlined, Icons.settings_rounded, -1),
+          for (var i = 0; i < _dests.length; i++)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: _RailButton(
+                dest: _dests[i],
+                tooltip: i == searchBranch ? 'Search (/)' : _dests[i].label,
+                selected: shell.currentIndex == i,
+                onTap: () => _goBranch(ref, shell, i),
+              ),
+            ),
+          const Spacer(),
+          _RailButton(
+            dest: const _Dest('Settings', PhosphorIconsRegular.gearSix, PhosphorIconsFill.gearSix),
+            tooltip: 'Settings',
             selected: false,
-            expanded: expanded,
             onTap: () => context.push('/settings'),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Logo extends StatelessWidget {
-  const _Logo({required this.expanded});
-  final bool expanded;
-
-  @override
-  Widget build(BuildContext context) => Row(
-        mainAxisAlignment: expanded ? MainAxisAlignment.start : MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(color: AppColors.gold, borderRadius: BorderRadius.circular(12)),
-            child: const Icon(Icons.play_arrow_rounded, color: AppColors.bg, size: 22),
-          ),
-          if (expanded) ...[
-            const SizedBox(width: 10),
-            Text(appName, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontSize: 20)),
-          ],
-        ],
+          const SizedBox(height: 6),
+          const ProfileMenu(),
+        ]),
       );
 }
 
-class _NavItem extends StatelessWidget {
-  const _NavItem({required this.dest, required this.selected, required this.expanded, required this.onTap});
+class _RailButton extends StatefulWidget {
+  const _RailButton({required this.dest, required this.tooltip, required this.selected, required this.onTap});
   final _Dest dest;
+  final String tooltip;
   final bool selected;
-  final bool expanded;
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2),
-        child: Tooltip(
-          message: expanded ? '' : dest.label,
-          child: Material(
-            color: selected ? AppColors.surfaceHover : Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(12),
-              hoverColor: AppColors.surfaceHigh,
-              onTap: onTap,
-              child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: expanded ? 14 : 0, vertical: 11),
-                child: Row(
-                  mainAxisAlignment: expanded ? MainAxisAlignment.start : MainAxisAlignment.center,
-                  children: [
-                    Icon(selected ? dest.selectedIcon : dest.icon,
-                        color: selected ? AppColors.text : AppColors.textMuted, size: 21),
-                    if (expanded) ...[
-                      const SizedBox(width: 12),
-                      Text(dest.label,
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                            color: selected ? AppColors.text : AppColors.textMuted,
-                          )),
-                    ],
-                  ],
+  State<_RailButton> createState() => _RailButtonState();
+}
+
+class _RailButtonState extends State<_RailButton> {
+  bool _hover = false;
+  bool _focus = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final sel = widget.selected;
+    return Tooltip(
+      message: widget.tooltip,
+      child: FocusableActionDetector(
+        mouseCursor: SystemMouseCursors.click,
+        onShowHoverHighlight: (v) => setState(() => _hover = v),
+        onShowFocusHighlight: (v) => setState(() => _focus = v),
+        actions: {
+          ActivateIntent: CallbackAction<ActivateIntent>(onInvoke: (_) {
+            widget.onTap();
+            return null;
+          }),
+        },
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: SizedBox(
+            width: 60,
+            height: 44,
+            child: Stack(alignment: Alignment.center, children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 120),
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: sel ? AppColors.tint(0.12) : (_hover ? AppColors.wash(0.07) : Colors.transparent),
+                  borderRadius: BorderRadius.circular(Radii.md),
+                  border: _focus ? Border.all(color: AppColors.accent, width: 2) : null,
+                ),
+                child: Icon(sel ? widget.dest.selectedIcon : widget.dest.icon,
+                    size: 21, color: sel ? AppColors.accent : AppColors.neutral500),
+              ),
+              Positioned(
+                left: 0,
+                top: 10,
+                bottom: 10,
+                child: Container(
+                  width: 2,
+                  decoration: BoxDecoration(
+                    color: sel ? AppColors.accent : Colors.transparent,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
               ),
-            ),
-          ),
-        ),
-      );
-}
-
-class _ContinueTile extends StatelessWidget {
-  const _ContinueTile({required this.entry});
-  final ContinueItem entry;
-
-  @override
-  Widget build(BuildContext context) {
-    final item = entry.item!;
-    final t = Theme.of(context).textTheme;
-    final subtitle = entry.kind == MediaKind.series && entry.season != null
-        ? 'S${entry.season} · E${entry.episode ?? '?'}'
-        : '${entry.progressPct.round()}% · ${formatDuration(entry.positionSecs)}';
-    return Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        hoverColor: AppColors.surfaceHigh,
-        onTap: () => resumeEntry(context, entry),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          child: Row(children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: SizedBox(
-                width: 76,
-                height: 46,
-                child: Stack(fit: StackFit.expand, children: [
-                  NetImage(item.backdrop, label: item.name, memCacheWidth: 200),
-                  const Center(child: Icon(Icons.play_arrow_rounded, color: Colors.white, size: 22)),
-                  Positioned(left: 0, right: 0, bottom: 0, child: ProgressBar(entry.progressPct / 100, height: 3)),
-                ]),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: t.bodySmall?.copyWith(fontWeight: FontWeight.w600)),
-                Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: t.labelSmall?.copyWith(color: AppColors.textMuted)),
-              ]),
-            ),
-          ]),
-        ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Top bar
-// ---------------------------------------------------------------------------
-
-const searchScopes = ['All', 'Movies', 'Series', 'Live TV'];
-
-class TopBar extends ConsumerStatefulWidget {
-  const TopBar({super.key});
-
-  @override
-  ConsumerState<TopBar> createState() => _TopBarState();
-}
-
-class _TopBarState extends ConsumerState<TopBar> {
-  final _search = TextEditingController();
-  int _scope = 0;
-
-  @override
-  void dispose() {
-    _search.dispose();
-    super.dispose();
-  }
-
-  void _submit(String q) {
-    final query = q.trim();
-    if (query.isEmpty) return;
-    context.push('/search?q=${Uri.encodeQueryComponent(query)}&scope=$_scope');
-    _search.clear();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 68,
-      padding: EdgeInsets.symmetric(horizontal: context.pagePadding),
-      decoration: const BoxDecoration(
-        color: AppColors.bg,
-        border: Border(bottom: BorderSide(color: AppColors.outline)),
-      ),
-      child: Row(children: [
-        PopupMenuButton<int>(
-          tooltip: 'Search in',
-          initialValue: _scope,
-          onSelected: (v) => setState(() => _scope = v),
-          itemBuilder: (_) => [
-            for (var i = 0; i < searchScopes.length; i++) PopupMenuItem(value: i, child: Text(searchScopes[i])),
-          ],
-          child: Container(
-            height: 42,
-            padding: const EdgeInsets.only(left: 14, right: 8),
-            decoration: BoxDecoration(
-              color: AppColors.surfaceHigh,
-              borderRadius: BorderRadius.circular(Radii.input),
-              border: Border.all(color: AppColors.outline),
-            ),
-            child: Row(children: [
-              Text(searchScopes[_scope], style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5)),
-              const SizedBox(width: 4),
-              const Icon(Icons.keyboard_arrow_down_rounded, size: 20, color: AppColors.textMuted),
             ]),
           ),
         ),
-        const SizedBox(width: 10),
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 520),
-          child: SizedBox(
-            height: 42,
-            child: TextField(
-              controller: _search,
-              onSubmitted: _submit,
-              textInputAction: TextInputAction.search,
-              decoration: InputDecoration(
-                hintText: 'Movies, series, channels…',
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                prefixIcon: const Icon(Icons.search_rounded, size: 20),
-                suffixIcon: IconButton(
-                  tooltip: 'Search',
-                  icon: const Icon(Icons.tune_rounded, size: 18),
-                  onPressed: () => _submit(_search.text),
-                ),
-              ),
-            ),
-          ),
-        ),
-        const Spacer(),
-        const WhatsNewButton(),
-        const SizedBox(width: 6),
-        const _ProfileMenu(),
-      ]),
-    );
-  }
-}
-
-/// Bell with a badge for titles added since the last visit.
-class WhatsNewButton extends ConsumerWidget {
-  const WhatsNewButton({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final items = ref.watch(whatsNewProvider);
-    return MenuAnchor(
-      alignmentOffset: const Offset(-200, 8),
-      menuChildren: [
-        if (items.isEmpty)
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 12, 16, 12),
-            child: Text('Nothing new since your last visit', style: TextStyle(color: AppColors.textMuted)),
-          )
-        else ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
-            child: Text('${items.length} new title${items.length == 1 ? '' : 's'}',
-                style: const TextStyle(fontWeight: FontWeight.w700)),
-          ),
-          for (final m in items.take(8))
-            MenuItemButton(
-              onPressed: () => openItem(context, m),
-              leadingIcon: SizedBox(
-                width: 30,
-                height: 44,
-                child: ClipRRect(borderRadius: BorderRadius.circular(6), child: NetImage(m.logo, label: m.name)),
-              ),
-              child: SizedBox(
-                width: 220,
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-                  Text(m.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                  Text('${m.kind.label} · added ${timeAgo(m.createdAt)}',
-                      style: const TextStyle(fontSize: 11.5, color: AppColors.textMuted)),
-                ]),
-              ),
-            ),
-          const Divider(),
-          MenuItemButton(
-            onPressed: () => ref.read(lastSeenProvider.notifier).markSeen(),
-            leadingIcon: const Icon(Icons.done_all_rounded, size: 18),
-            child: const Text('Mark all as seen'),
-          ),
-        ],
-      ],
-      builder: (context, controller, _) => IconButton(
-        tooltip: "What's new",
-        onPressed: () => controller.isOpen ? controller.close() : controller.open(),
-        icon: Badge(
-          isLabelVisible: items.isNotEmpty,
-          label: Text('${items.length}'),
-          backgroundColor: AppColors.accent,
-          child: const Icon(Icons.notifications_none_rounded),
-        ),
       ),
     );
   }
 }
 
-class _ProfileMenu extends ConsumerWidget {
-  const _ProfileMenu();
+// ---------------------------------------------------------------------------
+// Profile + what's new
+// ---------------------------------------------------------------------------
+
+/// Avatar that opens the account menu: playlist switcher, settings, sign out.
+class ProfileMenu extends ConsumerWidget {
+  const ProfileMenu({super.key, this.size = 30});
+  final double size;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -429,80 +255,154 @@ class _ProfileMenu extends ConsumerWidget {
     final active = playlists.where((p) => p.id == activeId).firstOrNull ??
         playlists.where((p) => p.status == PlaylistStatus.active).firstOrNull ??
         playlists.firstOrNull;
-    final t = Theme.of(context).textTheme;
 
     return MenuAnchor(
-      alignmentOffset: const Offset(-120, 8),
+      alignmentOffset: const Offset(52, -44),
       menuChildren: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
+          child: Row(children: [
+            Avatar(email, size: 32),
+            const SizedBox(width: 10),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 200),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                Text(email.split('@').first, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.title),
+                Text(active?.name ?? 'No playlist', maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta),
+              ]),
+            ),
+          ]),
+        ),
         if (playlists.length > 1) ...[
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 10, 16, 4),
-            child: Text('PLAYLIST', style: TextStyle(fontSize: 11, letterSpacing: 1.2, color: AppColors.textMuted)),
-          ),
+          const Eyebrow('Playlist', padding: EdgeInsets.fromLTRB(10, 6, 10, 4)),
           for (final p in playlists)
             MenuItemButton(
               onPressed: () => ref.read(activePlaylistProvider.notifier).select(p.id),
-              leadingIcon: Icon(p.id == active?.id ? Icons.radio_button_checked : Icons.radio_button_off, size: 18),
-              child: Text(p.name),
+              leadingIcon: Icon(p.id == active?.id ? PhosphorIconsRegular.check : PhosphorIconsRegular.dotOutline,
+                  color: p.id == active?.id ? AppColors.accent : AppColors.neutral600),
+              child: Text(p.name, style: TextStyle(color: p.id == active?.id ? AppColors.accent : null)),
             ),
-          const Divider(),
         ],
+        const Divider(height: 13),
         MenuItemButton(
           onPressed: () => context.push('/settings'),
-          leadingIcon: const Icon(Icons.settings_outlined, size: 18),
+          leadingIcon: const Icon(PhosphorIconsRegular.gearSix),
           child: const Text('Settings & playlists'),
         ),
         MenuItemButton(
           onPressed: () => ref.read(sessionProvider.notifier).signOut(),
-          leadingIcon: const Icon(Icons.logout_rounded, size: 18, color: AppColors.danger),
+          leadingIcon: const Icon(PhosphorIconsRegular.signOut, color: AppColors.danger),
           child: const Text('Sign out'),
         ),
       ],
-      builder: (context, controller, _) => InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () => controller.isOpen ? controller.close() : controller.open(),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-          child: Row(children: [
-            CircleAvatar(
-              radius: 17,
-              backgroundColor: AppColors.primary,
-              child: Text(email.isEmpty ? '?' : email[0].toUpperCase(),
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
-            ),
-            if (context.isExpanded) ...[
-              const SizedBox(width: 10),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 170),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-                  Text(email.split('@').first, maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: t.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
-                  Text(active?.name ?? 'No playlist', maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: t.labelSmall?.copyWith(color: AppColors.textMuted)),
-                ]),
-              ),
-              const SizedBox(width: 4),
-              const Icon(Icons.keyboard_arrow_down_rounded, size: 20, color: AppColors.textMuted),
-            ],
-          ]),
+      builder: (context, controller, _) => Tooltip(
+        message: '${email.split('@').first} · ${active?.name ?? 'No playlist'}',
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            onTap: () => controller.isOpen ? controller.close() : controller.open(),
+            child: Avatar(email, size: size),
+          ),
         ),
       ),
     );
   }
 }
 
-/// Search, what's-new and settings actions for phone headers (the top bar
-/// covers these on wide screens).
+/// Bell with an accent dot while there are titles added since the last
+/// visit; opens a popover listing them.
+class WhatsNewButton extends ConsumerWidget {
+  const WhatsNewButton({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final items = ref.watch(whatsNewProvider);
+    return MenuAnchor(
+      alignmentOffset: const Offset(-284, 8),
+      style: const MenuStyle(padding: WidgetStatePropertyAll(EdgeInsets.fromLTRB(8, 12, 8, 8))),
+      menuChildren: [
+        SizedBox(
+          width: 304,
+          child: items.isEmpty
+              ? const Padding(
+                  padding: EdgeInsets.fromLTRB(8, 0, 8, 6),
+                  child: Text('Nothing new since your last visit', style: TextStyle(color: AppColors.textMuted)),
+                )
+              : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 0, 0, 6),
+                    child: Row(children: [
+                      Expanded(
+                        child: Text('${items.length} new since your last visit',
+                            style: const TextStyle(fontWeight: FontWeight.w500)),
+                      ),
+                      TextButton(
+                        onPressed: () => ref.read(lastSeenProvider.notifier).markSeen(),
+                        style: TextButton.styleFrom(textStyle: const TextStyle(fontSize: 12.5)),
+                        child: const Text('Mark all seen'),
+                      ),
+                    ]),
+                  ),
+                  for (final m in items.take(8))
+                    MenuItemButton(
+                      onPressed: () => openItem(context, m),
+                      style: const ButtonStyle(
+                        padding: WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 8, vertical: 6)),
+                      ),
+                      leadingIcon: SizedBox(
+                        width: 30,
+                        height: 44,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(Radii.sm),
+                          child: NetImage(m.logo, label: m.name, labelSize: 10, memCacheWidth: 90),
+                        ),
+                      ),
+                      child: SizedBox(
+                        width: 236,
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                          Text(m.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13)),
+                          Text('${m.kind.label} · added ${timeAgo(m.createdAt)}',
+                              style: const TextStyle(fontSize: 11.5, color: AppColors.textMuted)),
+                        ]),
+                      ),
+                    ),
+                ]),
+        ),
+      ],
+      builder: (context, controller, _) => IconButton(
+        tooltip: "What's new",
+        onPressed: () => controller.isOpen ? controller.close() : controller.open(),
+        icon: Stack(clipBehavior: Clip.none, children: [
+          const Icon(PhosphorIconsRegular.bell),
+          if (items.isNotEmpty)
+            Positioned(
+              top: -1,
+              right: -1,
+              child: Container(
+                width: 7,
+                height: 7,
+                decoration: const BoxDecoration(color: AppColors.accent, shape: BoxShape.circle),
+              ),
+            ),
+        ]),
+      ),
+    );
+  }
+}
+
+/// What's-new and account actions for phone headers (the rail carries these
+/// on wide screens).
 class HeaderActions extends StatelessWidget {
   const HeaderActions({super.key});
 
   @override
   Widget build(BuildContext context) {
     if (context.isWide) return const SizedBox.shrink();
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      IconButton(onPressed: () => context.push('/search'), icon: const Icon(Icons.search_rounded)),
-      const WhatsNewButton(),
-      IconButton(onPressed: () => context.push('/settings'), icon: const Icon(Icons.settings_outlined)),
+    return const Row(mainAxisSize: MainAxisSize.min, children: [
+      WhatsNewButton(),
+      SizedBox(width: 6),
+      ProfileMenu(size: 28),
+      SizedBox(width: 8),
     ]);
   }
 }

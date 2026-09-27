@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'core/theme.dart';
 import 'router.dart';
 import 'state/session.dart';
+import 'widgets/app_shell.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,6 +23,7 @@ class IptvApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final router = ref.watch(routerProvider);
     return MaterialApp.router(
       title: appName,
       debugShowCheckedModeBanner: false,
@@ -29,7 +31,8 @@ class IptvApp extends ConsumerWidget {
       darkTheme: buildTheme(),
       themeMode: ThemeMode.dark,
       scrollBehavior: const AppScrollBehavior(),
-      routerConfig: ref.watch(routerProvider),
+      routerConfig: router,
+      builder: (context, child) => AppKeys(router: router, child: child!),
     );
   }
 }

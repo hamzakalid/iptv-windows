@@ -1,9 +1,8 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/icons.dart';
 import '../../core/theme.dart';
 import '../../models/media.dart';
 import '../../state/providers.dart';
@@ -11,8 +10,14 @@ import '../../widgets/common.dart';
 import '../../widgets/media_cards.dart';
 import '../../widgets/media_row.dart';
 
-/// Cinematic layout shared by movie and series pages: blurred backdrop,
-/// poster + title block, then arbitrary sections underneath.
+/// Horizontal inset for detail pages.
+double detailPad(BuildContext context) => context.isWide ? 32 : 16;
+
+/// Height of every action button on a detail page.
+const detailButtonSize = Size(0, 38);
+
+/// Layout shared by movie and series pages: a soft backdrop band, the
+/// poster overlapping it beside the title block, then sections.
 class DetailScaffold extends StatelessWidget {
   const DetailScaffold({
     super.key,
@@ -20,95 +25,132 @@ class DetailScaffold extends StatelessWidget {
     required this.meta,
     required this.actions,
     required this.sections,
+    this.progress,
+    this.footnote,
     this.loading = false,
   });
 
   final MediaItem item;
+
+  /// Year, length and genre tags; rating is added automatically.
   final List<Widget> meta;
   final List<Widget> actions;
   final List<Widget> sections;
+
+  /// Resume bar shown above the actions.
+  final Widget? progress;
+
+  /// Small print under the plot (e.g. the director).
+  final Widget? footnote;
   final bool loading;
 
   @override
   Widget build(BuildContext context) {
-    final t = Theme.of(context).textTheme;
     final wide = context.isWide;
-    final pad = context.pagePadding;
-    final heroHeight = wide ? 520.0 : 300.0;
+    final pad = detailPad(context);
+    final band = wide ? 300.0 : 220.0;
+    final overlap = wide ? 190.0 : 120.0;
 
     final titleBlock = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(item.name, style: (wide ? t.displaySmall : t.headlineMedium)?.copyWith(height: 1.1)),
+        Text(item.kind.label.toUpperCase(), style: AppText.kicker),
+        const SizedBox(height: 10),
+        Text(item.name, style: wide ? AppText.h2 : AppText.h3),
+        const SizedBox(height: 10),
+        DefaultTextStyle.merge(
+          style: const TextStyle(fontSize: 13, color: AppColors.neutral300),
+          child: Wrap(spacing: 12, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
+            if (item.rating != null && item.rating! > 0) StarRating(item.rating!),
+            ...meta,
+          ]),
+        ),
+        if (item.plot != null) ...[
+          const SizedBox(height: 10),
+          _Plot(item.plot!),
+        ],
+        if (footnote != null) ...[const SizedBox(height: 8), footnote!],
+        if (progress != null) ...[const SizedBox(height: 12), progress!],
         const SizedBox(height: 14),
-        Wrap(spacing: 8, runSpacing: 8, children: meta),
-        const SizedBox(height: 20),
-        Wrap(spacing: 12, runSpacing: 12, children: actions),
+        Wrap(spacing: 8, runSpacing: 8, children: actions),
       ],
     );
 
     return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        leading: Padding(
-          padding: const EdgeInsets.all(6),
-          child: IconButton.filledTonal(
-            style: IconButton.styleFrom(backgroundColor: Colors.black45),
-            onPressed: () => context.canPop() ? context.pop() : context.go('/home'),
-            icon: const Icon(Icons.arrow_back_rounded),
-          ),
-        ),
-      ),
       body: CustomScrollView(slivers: [
         SliverToBoxAdapter(
           child: Stack(children: [
             SizedBox(
-              height: heroHeight,
+              height: band,
               width: double.infinity,
               child: Stack(fit: StackFit.expand, children: [
-                // Posters used as backdrops are blurred; clip so the blur
-                // doesn't bleed past the hero's bottom edge.
-                ClipRect(
-                  child: ImageFiltered(
-                    imageFilter:
-                        item.backdrop == item.logo ? ImageFilter.blur(sigmaX: 18, sigmaY: 18) : ImageFilter.blur(),
-                    child: NetImage(item.backdrop, label: item.name),
+                const DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: RadialGradient(
+                      center: Alignment(0.4, -1),
+                      radius: 1.3,
+                      colors: [AppColors.neutral800, AppColors.neutral900, AppColors.bg],
+                      stops: [0, 0.55, 1],
+                    ),
                   ),
                 ),
-                const DecoratedBox(
+                if (item.backdrop != item.logo) NetImage(item.backdrop, labelSize: 0, lighten: true),
+                DecoratedBox(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
-                      colors: [Color(0x66000000), Color(0x9909090F), AppColors.bg],
-                      stops: [0, 0.6, 1],
+                      colors: [AppColors.bg.withValues(alpha: 0.2), AppColors.bg],
                     ),
                   ),
                 ),
               ]),
             ),
             Padding(
-              padding: EdgeInsets.fromLTRB(pad, wide ? 200 : 140, pad, 0),
+              padding: EdgeInsets.fromLTRB(pad, band - overlap, pad, 0),
               child: wide
                   ? Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                      _Poster(item: item, width: 220),
-                      const SizedBox(width: 32),
-                      Expanded(child: titleBlock),
+                      _Poster(item: item, width: 210),
+                      const SizedBox(width: 28),
+                      Expanded(
+                        child: Align(
+                          alignment: Alignment.bottomLeft,
+                          child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 680), child: titleBlock),
+                        ),
+                      ),
                     ])
                   : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      _Poster(item: item, width: 130),
+                      _Poster(item: item, width: 120),
                       const SizedBox(height: 18),
                       titleBlock,
                     ]),
+            ),
+            Positioned(
+              top: 16,
+              left: wide ? 24 : 12,
+              child: SafeArea(
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    backgroundColor: AppColors.bg.withValues(alpha: 0.6),
+                    minimumSize: const Size(0, 34),
+                  ),
+                  onPressed: () => context.canPop() ? context.pop() : context.go('/home'),
+                  icon: const Icon(PhosphorIconsRegular.arrowLeft),
+                  label: const Text('Back'),
+                ),
+              ),
             ),
           ]),
         ),
         if (loading)
           const SliverToBoxAdapter(
-            child: Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator())),
+            child: Padding(
+              padding: EdgeInsets.all(32),
+              child: Center(child: SizedBox.square(dimension: 22, child: CircularProgressIndicator(strokeWidth: 2))),
+            ),
           ),
-        SliverList.list(children: [const SizedBox(height: 28), ...sections, const SizedBox(height: 32)]),
+        SliverList.list(children: [...sections, const SizedBox(height: 40)]),
       ]),
     );
   }
@@ -122,19 +164,57 @@ class _Poster extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
         width: width,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 30, offset: Offset(0, 12))],
-        ),
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(Radii.md), boxShadow: Shadows.md),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(16),
-          child: AspectRatio(aspectRatio: 2 / 3, child: NetImage(item.logo, label: item.name)),
+          borderRadius: BorderRadius.circular(Radii.md),
+          child: AspectRatio(aspectRatio: 2 / 3, child: NetImage(item.logo, label: item.name, labelSize: 26)),
         ),
       );
 }
 
-class FavoriteButton extends ConsumerWidget {
-  const FavoriteButton({super.key, required this.item});
+class _Plot extends StatefulWidget {
+  const _Plot(this.text);
+  final String text;
+
+  @override
+  State<_Plot> createState() => _PlotState();
+}
+
+class _PlotState extends State<_Plot> {
+  bool _open = false;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: () => setState(() => _open = !_open),
+        child: Text(
+          widget.text,
+          maxLines: _open ? null : 4,
+          overflow: _open ? null : TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 14, height: 1.55, color: AppColors.neutral300),
+        ),
+      );
+}
+
+/// Resume bar with a label, capped at 360px.
+class ResumeBar extends StatelessWidget {
+  const ResumeBar({super.key, required this.value, required this.label});
+  final double value;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 360),
+        child: Row(children: [
+          Expanded(child: ThinProgress(value, height: 3)),
+          const SizedBox(width: 10),
+          Text(label, style: const TextStyle(fontSize: 12, color: AppColors.neutral400)),
+        ]),
+      );
+}
+
+/// "My List" / "In My List" toggle.
+class MyListButton extends ConsumerWidget {
+  const MyListButton({super.key, required this.item});
   final MediaItem item;
 
   @override
@@ -142,64 +222,29 @@ class FavoriteButton extends ConsumerWidget {
     ref.watch(favoritesProvider);
     final saved = ref.read(favoritesProvider.notifier).contains(item.id);
     return OutlinedButton.icon(
-      onPressed: () async {
-        try {
-          await ref.read(favoritesProvider.notifier).toggle(item);
-        } catch (e) {
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not update My List: $e')));
-          }
-        }
-      },
-      icon: Icon(saved ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+      style: OutlinedButton.styleFrom(minimumSize: detailButtonSize),
+      onPressed: () => toggleSaved(context, ref, item),
+      icon: Icon(saved ? PhosphorIconsFill.bookmarkSimple : PhosphorIconsRegular.bookmarkSimple,
           color: saved ? AppColors.accent : null),
       label: Text(saved ? 'In My List' : 'My List'),
     );
   }
 }
 
-/// Paragraph section with a heading and optional expand toggle.
-class TextSection extends StatefulWidget {
-  const TextSection({super.key, required this.title, required this.text, this.footer});
+/// Section title on a detail page.
+class DetailHeading extends StatelessWidget {
+  const DetailHeading(this.title, {super.key, this.trailing});
   final String title;
-  final String text;
-  final Widget? footer;
+  final Widget? trailing;
 
   @override
-  State<TextSection> createState() => _TextSectionState();
-}
-
-class _TextSectionState extends State<TextSection> {
-  bool _expanded = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = Theme.of(context).textTheme;
-    return Padding(
-      padding: EdgeInsets.fromLTRB(0, 0, 0, 28),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        SectionHeader(widget.title),
-        Padding(
-          padding: EdgeInsets.symmetric(horizontal: context.pagePadding),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 820),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              GestureDetector(
-                onTap: () => setState(() => _expanded = !_expanded),
-                child: Text(
-                  widget.text,
-                  maxLines: _expanded ? null : 4,
-                  overflow: _expanded ? null : TextOverflow.ellipsis,
-                  style: t.bodyLarge?.copyWith(color: Colors.white.withValues(alpha: 0.82), height: 1.6),
-                ),
-              ),
-              if (widget.footer != null) ...[const SizedBox(height: 14), widget.footer!],
-            ]),
-          ),
-        ),
-      ]),
-    );
-  }
+  Widget build(BuildContext context) => Padding(
+        padding: EdgeInsets.fromLTRB(detailPad(context), 32, detailPad(context), 12),
+        child: Row(children: [
+          Text(title, style: AppText.h5),
+          if (trailing != null) ...[const SizedBox(width: 14), Flexible(child: trailing!)],
+        ]),
+      );
 }
 
 class CastRow extends StatelessWidget {
@@ -207,29 +252,53 @@ class CastRow extends StatelessWidget {
   final List<Actor> actors;
 
   @override
-  Widget build(BuildContext context) => MediaRow(
-        title: 'Cast',
-        itemCount: actors.length,
-        itemWidth: 96,
-        height: 150,
-        itemBuilder: (context, i) {
-          final a = actors[i];
-          return InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: a.id == null ? null : () => context.push('/actor/${a.id}'),
-            child: Column(children: [
-              Container(
-                padding: const EdgeInsets.all(2),
-                decoration: const BoxDecoration(shape: BoxShape.circle, gradient: AppColors.brandGradient),
-                child: ClipOval(child: SizedBox.square(dimension: 84, child: NetImage(a.profileUrl, label: a.name))),
-              ),
-              const SizedBox(height: 8),
-              Text(a.name, maxLines: 2, textAlign: TextAlign.center, overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500)),
-            ]),
-          );
-        },
-      );
+  Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const DetailHeading('Cast'),
+        SizedBox(
+          height: 118,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: EdgeInsets.symmetric(horizontal: detailPad(context)),
+            itemCount: actors.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 18),
+            itemBuilder: (context, i) {
+              final a = actors[i];
+              return SizedBox(
+                width: 84,
+                child: Hoverable(
+                  radius: 36,
+                  ring: const [],
+                  onTap: a.id == null ? null : () => context.push('/actor/${a.id}'),
+                  child: Column(children: [
+                    Container(
+                      width: 72,
+                      height: 72,
+                      clipBehavior: Clip.antiAlias,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: AppColors.neutral900,
+                        boxShadow: Shadows.sm,
+                      ),
+                      child: a.profileUrl == null
+                          ? Center(
+                              child: Text(initials(a.name),
+                                  style: const TextStyle(fontSize: 13, color: AppColors.neutral500)),
+                            )
+                          : NetImage(a.profileUrl, label: a.name, labelSize: 13, memCacheWidth: 200),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(a.name,
+                        maxLines: 2,
+                        textAlign: TextAlign.center,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12, height: 1.3)),
+                  ]),
+                ),
+              );
+            },
+          ),
+        ),
+      ]);
 }
 
 class SimilarRow extends ConsumerWidget {
@@ -240,13 +309,17 @@ class SimilarRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final items = ref.watch(similarProvider((kind: kind, id: id))).value ?? const [];
-    final w = context.isWide ? 160.0 : 124.0;
-    return MediaRow(
-      title: 'More like this',
-      itemCount: items.length,
-      itemWidth: w,
-      height: w * 1.5 + 50,
-      itemBuilder: (_, i) => PosterCard(item: items[i]),
-    );
+    if (items.isEmpty) return const SizedBox.shrink();
+    final w = context.isWide ? 150.0 : 116.0;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const DetailHeading('More like this'),
+      ArrowScroller(
+        height: w * 1.5 + posterCaptionHeight + 8,
+        itemCount: items.length,
+        arrowInset: 44,
+        padding: EdgeInsets.fromLTRB(detailPad(context), 2, detailPad(context), 6),
+        itemBuilder: (_, i) => SizedBox(width: w, child: PosterCard(item: items[i])),
+      ),
+    ]);
   }
 }

@@ -8,6 +8,38 @@ import 'media_cards.dart';
 
 typedef PageFetcher = Future<Paged<MediaItem>> Function(int offset);
 
+/// Column count and tile height for a card grid, matching CSS
+/// `repeat(auto-fill, minmax(min, 1fr))`.
+({int cols, double extent}) gridMetrics(double width, MediaKind kind, {required bool wide, double gap = 14}) {
+  final channel = kind == MediaKind.channel;
+  final min = channel ? (wide ? 232.0 : 160.0) : (wide ? 150.0 : 108.0);
+  final cols = ((width + gap) / (min + gap)).floor().clamp(2, 14);
+  final itemWidth = (width - (cols - 1) * gap) / cols;
+  final extent = channel ? itemWidth / 2 + channelCardBodyHeight : itemWidth * 1.5 + posterCaptionHeight;
+  return (cols: cols, extent: extent);
+}
+
+/// Card grid sliver for a fixed list of items.
+class MediaGridSliver extends StatelessWidget {
+  const MediaGridSliver({super.key, required this.items, required this.kind});
+  final List<MediaItem> items;
+  final MediaKind kind;
+
+  @override
+  Widget build(BuildContext context) => SliverLayoutBuilder(builder: (context, c) {
+        final m = gridMetrics(c.crossAxisExtent, kind, wide: context.isWide);
+        return SliverGrid(
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: m.cols,
+            mainAxisSpacing: kind == MediaKind.channel ? 14 : 18,
+            crossAxisSpacing: 14,
+            mainAxisExtent: m.extent,
+          ),
+          delegate: SliverChildBuilderDelegate((_, i) => MediaCard(item: items[i]), childCount: items.length),
+        );
+      });
+}
+
 /// Infinite-scrolling grid of media cards. Changing [queryKey] resets it.
 class PagedMediaGrid extends StatefulWidget {
   const PagedMediaGrid({
@@ -16,14 +48,20 @@ class PagedMediaGrid extends StatefulWidget {
     required this.fetch,
     required this.kind,
     this.header,
+    this.padding,
     this.emptyTitle = 'Nothing here yet',
+    this.onTotal,
   });
 
   final Object queryKey;
   final PageFetcher fetch;
   final MediaKind kind;
   final Widget? header;
+  final EdgeInsets? padding;
   final String emptyTitle;
+
+  /// Reports the server's total for the current query (for "12 of 340").
+  final ValueChanged<int>? onTotal;
 
   @override
   State<PagedMediaGrid> createState() => _PagedMediaGridState();
@@ -68,6 +106,7 @@ class _PagedMediaGridState extends State<PagedMediaGrid> {
         _items.addAll(page.items);
         _total = page.items.isEmpty ? _items.length : page.total;
       });
+      widget.onTotal?.call(_total);
     } catch (e) {
       if (mounted && gen == _generation) setState(() => _error = e);
     } finally {
@@ -89,62 +128,53 @@ class _PagedMediaGridState extends State<PagedMediaGrid> {
   @override
   Widget build(BuildContext context) {
     final channel = widget.kind == MediaKind.channel;
-    final wide = context.isWide;
-    final maxExtent = channel ? (wide ? 230.0 : 170.0) : (wide ? 190.0 : 130.0);
-    final aspect = channel ? 16 / 10 : 2 / 3;
     final pad = context.pagePadding;
+    final padding = widget.padding ?? EdgeInsets.fromLTRB(pad, 4, pad, 32);
 
     Widget body;
     if (_items.isEmpty && _error != null) {
       body = SliverFillRemaining(hasScrollBody: false, child: ErrorView(error: _error!, onRetry: _refresh));
     } else if (_items.isEmpty && !_loading && !_hasMore) {
-      body = SliverFillRemaining(
-        hasScrollBody: false,
-        child: EmptyState(icon: Icons.inbox_outlined, title: widget.emptyTitle),
+      body = SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 48),
+          child: Text(widget.emptyTitle, style: const TextStyle(color: AppColors.textMuted)),
+        ),
       );
     } else {
-      body = SliverPadding(
-        padding: EdgeInsets.fromLTRB(pad, 8, pad, 24),
-        sliver: SliverLayoutBuilder(builder: (context, constraints) {
-          final cols = (constraints.crossAxisExtent / maxExtent).ceil().clamp(2, 12);
-          final itemWidth = (constraints.crossAxisExtent - (cols - 1) * 14) / cols;
-          // Card = artwork + title (+ subtitle for posters).
-          final itemHeight = itemWidth / aspect + (channel ? 30 : 48);
-          final showSkeleton = _items.isEmpty && _loading;
-          return SliverGrid(
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: cols,
-              mainAxisSpacing: 18,
-              crossAxisSpacing: 14,
-              childAspectRatio: itemWidth / itemHeight,
-            ),
-            delegate: SliverChildBuilderDelegate(
-              (context, i) {
-                if (showSkeleton) {
-                  return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    AspectRatio(aspectRatio: aspect, child: const Skeleton(radius: 14)),
-                    const SizedBox(height: 8),
-                    const Skeleton(height: 12, width: 90, radius: 4),
-                  ]);
-                }
-                if (i >= _items.length - 12) WidgetsBinding.instance.addPostFrameCallback((_) => _load());
-                return MediaCard(item: _items[i]);
-              },
-              childCount: showSkeleton ? cols * 3 : _items.length,
-            ),
-          );
-        }),
-      );
+      body = SliverLayoutBuilder(builder: (context, constraints) {
+        final m = gridMetrics(constraints.crossAxisExtent, widget.kind, wide: context.isWide);
+        final showSkeleton = _items.isEmpty && _loading;
+        return SliverGrid(
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: m.cols,
+            mainAxisSpacing: channel ? 14 : 18,
+            crossAxisSpacing: 14,
+            mainAxisExtent: m.extent,
+          ),
+          delegate: SliverChildBuilderDelegate(
+            (context, i) {
+              if (showSkeleton) return const Skeleton();
+              if (i >= _items.length - 12) WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+              return MediaCard(item: _items[i]);
+            },
+            childCount: showSkeleton ? m.cols * 3 : _items.length,
+          ),
+        );
+      });
     }
 
     return RefreshIndicator(
       onRefresh: _refresh,
       child: CustomScrollView(slivers: [
         if (widget.header != null) SliverToBoxAdapter(child: widget.header),
-        body,
+        SliverPadding(padding: padding, sliver: body),
         if (_loading && _items.isNotEmpty)
           const SliverToBoxAdapter(
-            child: Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator())),
+            child: Padding(
+              padding: EdgeInsets.only(bottom: 32),
+              child: Center(child: SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2))),
+            ),
           ),
       ]),
     );

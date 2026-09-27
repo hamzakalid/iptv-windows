@@ -102,6 +102,58 @@ final watchedIdsProvider = Provider<Set<String>>((ref) => (ref.watch(historyProv
     .map((e) => e.contentId)
     .toSet());
 
+/// Resume state per content id, from the home feed's continue-watching list.
+final resumeProvider = Provider<Map<String, ContinueItem>>((ref) {
+  final items = ref.watch(homeProvider).value?.continueWatching ?? const <ContinueItem>[];
+  return {for (final c in items) c.contentId: c};
+});
+
+/// Channels the user watched most recently, newest first, without repeats.
+final recentChannelsProvider = Provider<List<MediaItem>>((ref) {
+  final seen = <String>{};
+  return (ref.watch(historyProvider).value ?? const <WatchEvent>[])
+      .where((e) => e.kind == MediaKind.channel && e.item != null && seen.add(e.contentId))
+      .map((e) => e.item!)
+      .take(8)
+      .toList();
+});
+
+/// Channels in one category (or all when [group] is null), for the player's
+/// channel list, zapping and guide.
+final channelListProvider = FutureProvider.autoDispose.family<List<MediaItem>, String?>((ref, group) async {
+  final page = await ref
+      .watch(repositoryProvider)
+      .list(MediaKind.channel, playlistId: ref.watch(activePlaylistProvider), group: group, limit: 500);
+  return page.items;
+});
+
+/// Full programme schedule for one channel.
+final channelEpgProvider = FutureProvider.autoDispose.family<ChannelEpg, String>((ref, id) async =>
+    ChannelEpg.fromDetails((await ref.watch(repositoryProvider).detail(MediaKind.channel, id)).details));
+
+/// Queries the user searched for, newest first; kept on this device.
+final recentSearchesProvider = NotifierProvider<RecentSearches, List<String>>(RecentSearches.new);
+
+class RecentSearches extends Notifier<List<String>> {
+  static const _key = 'recent_searches';
+
+  @override
+  List<String> build() => ref.read(prefsProvider).getStringList(_key) ?? const [];
+
+  void add(String query) {
+    final q = query.trim().toLowerCase();
+    if (q.length < 2) return;
+    _save([q, ...state.where((s) => s != q)].take(8).toList());
+  }
+
+  void remove(String query) => _save(state.where((s) => s != query).toList());
+
+  void _save(List<String> next) {
+    ref.read(prefsProvider).setStringList(_key, next);
+    state = next;
+  }
+}
+
 /// Titles added to the playlist since the user last opened the app.
 final whatsNewProvider = Provider<List<MediaItem>>((ref) {
   final since = ref.watch(lastSeenProvider);

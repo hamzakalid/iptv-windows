@@ -3,10 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/format.dart';
+import '../core/icons.dart';
 import '../core/theme.dart';
+import '../features/player/player_screen.dart';
 import '../models/account.dart';
 import '../models/media.dart';
-import '../features/player/player_screen.dart';
 import '../state/providers.dart';
 import 'common.dart';
 
@@ -31,28 +32,93 @@ void playItem(BuildContext context, MediaItem item) {
   }
 }
 
-/// "2025 • ★ 7.1" under a poster; falls back to the category.
-class MetaLine extends StatelessWidget {
-  const MetaLine(this.item, {super.key});
-  final MediaItem item;
+void resumeEntry(BuildContext context, ContinueItem entry) {
+  final item = entry.item!;
+  if (entry.kind == MediaKind.series) {
+    // Episode URLs live on the series detail, which offers "Resume".
+    openItem(context, item);
+    return;
+  }
+  PlayerScreen.open(context, PlayerArgs.movie(item, startAt: entry.positionSecs));
+}
 
-  @override
-  Widget build(BuildContext context) {
-    final muted = Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.textMuted);
-    final hasRating = item.rating != null && item.rating! > 0;
-    if (item.year == null && !hasRating) {
-      return Text(item.group, maxLines: 1, overflow: TextOverflow.ellipsis, style: muted);
+/// "2021 · ★ 8.2" under a poster; falls back to the category.
+String posterSubtitle(MediaItem item) {
+  final parts = [
+    if (item.year != null) '${item.year}',
+    if (item.rating != null && item.rating! > 0) '★ ${item.rating!.toStringAsFixed(1)}',
+  ];
+  return parts.isEmpty ? item.group : parts.join(' · ');
+}
+
+/// "101 · BBC News" when the provider numbers its channels.
+String channelLabel(MediaItem c) => c.number == null ? c.name : '${c.number} · ${c.name}';
+
+/// Movie: "38% · 1h 12m left". Series: "S2 · E3 — Title".
+String resumeSubtitle(ContinueItem c) {
+  if (c.kind == MediaKind.series && c.season != null) {
+    return 'S${c.season} · E${c.episode ?? '?'}${c.episodeTitle != null ? ' — ${c.episodeTitle}' : ''}';
+  }
+  final left = c.durationSecs == null ? null : c.durationSecs! - c.positionSecs;
+  return [
+    '${c.progressPct.round()}%',
+    if (left != null && left > 60) '${formatDuration(left)} left',
+  ].join(' · ');
+}
+
+Future<void> toggleSaved(BuildContext context, WidgetRef ref, MediaItem item) async {
+  try {
+    await ref.read(favoritesProvider.notifier).toggle(item);
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not update My List: $e')));
     }
-    return Row(children: [
-      if (item.year != null) Text('${item.year}', style: muted),
-      if (item.year != null && hasRating) Text('  •  ', style: muted),
-      if (hasRating) StarRating(item.rating!),
-    ]);
   }
 }
 
-/// 2:3 poster with title and meta line. Hovering (desktop) reveals a
-/// quick-play overlay with genre and duration.
+/// Small square button that sits on artwork (bookmark, favourite star).
+class ArtButton extends StatefulWidget {
+  const ArtButton({super.key, required this.icon, required this.color, required this.tooltip, required this.onTap, this.scrim = true});
+  final IconData icon;
+  final Color color;
+  final String tooltip;
+  final VoidCallback onTap;
+  final bool scrim;
+
+  @override
+  State<ArtButton> createState() => _ArtButtonState();
+}
+
+class _ArtButtonState extends State<ArtButton> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = widget.scrim
+        ? AppColors.bg.withValues(alpha: _hover ? 0.85 : 0.55)
+        : (_hover ? AppColors.wash(0.10) : Colors.transparent);
+    return Tooltip(
+      message: widget.tooltip,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(Radii.md)),
+            child: Icon(widget.icon, size: 15, color: widget.color),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 2:3 poster with a bookmark, "Watched" tag and resume strip, then the
+/// title and a muted meta line.
 class PosterCard extends ConsumerWidget {
   const PosterCard({super.key, required this.item, this.width});
   final MediaItem item;
@@ -60,85 +126,157 @@ class PosterCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final t = Theme.of(context).textTheme;
-    final watched = item.kind == MediaKind.movie && ref.watch(watchedIdsProvider).contains(item.id);
+    ref.watch(favoritesProvider);
+    final saved = ref.read(favoritesProvider.notifier).contains(item.id);
+    final watched = ref.watch(watchedIdsProvider).contains(item.id);
+    final resume = ref.watch(resumeProvider)[item.id];
+    final pct = watched ? 0.0 : (resume?.progressPct ?? 0) / 100;
+
     return SizedBox(
       width: width,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AspectRatio(
-            aspectRatio: 2 / 3,
-            child: Hoverable(
-              radius: Radii.card,
-              onTap: () => openItem(context, item),
-              overlay: context.hasMouse ? _PosterOverlay(item: item) : null,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(Radii.card),
-                child: Stack(fit: StackFit.expand, children: [
-                  NetImage(item.logo, label: item.name, memCacheWidth: 400),
-                  if (watched)
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: const BoxDecoration(color: AppColors.success, shape: BoxShape.circle),
-                        child: const Icon(Icons.check_rounded, size: 12, color: Colors.white),
-                      ),
-                    ),
-                ]),
-              ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        AspectRatio(
+          aspectRatio: 2 / 3,
+          child: Hoverable(
+            onTap: () => openItem(context, item),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(Radii.md),
+              child: Stack(fit: StackFit.expand, children: [
+                NetImage(item.logo, label: item.name, memCacheWidth: 360),
+                Positioned(
+                  top: 4,
+                  right: 4,
+                  child: ArtButton(
+                    icon: saved ? PhosphorIconsFill.bookmarkSimple : PhosphorIconsRegular.bookmarkSimple,
+                    color: saved ? AppColors.accent : AppColors.neutral300,
+                    tooltip: saved ? 'Remove from My List' : 'Add to My List',
+                    onTap: () => toggleSaved(context, ref, item),
+                  ),
+                ),
+                if (watched)
+                  const Positioned(
+                    left: 6,
+                    bottom: 8,
+                    child: Tag('Watched', tone: TagTone.accent, icon: PhosphorIconsRegular.check),
+                  ),
+                if (pct > 0) ArtProgress(pct),
+              ]),
             ),
           ),
-          const SizedBox(height: 9),
-          Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: t.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
-          const SizedBox(height: 2),
-          MetaLine(item),
-        ],
-      ),
+        ),
+        const SizedBox(height: 6),
+        Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.title),
+        const SizedBox(height: 1),
+        Text(posterSubtitle(item), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta),
+      ]),
     );
   }
 }
 
-class _PosterOverlay extends StatelessWidget {
-  const _PosterOverlay({required this.item});
+/// Height of a [PosterCard] below its artwork (gap + title + meta line).
+const posterCaptionHeight = 44.0;
+
+/// Live TV grid card: logo band with number and favourite star, then the
+/// channel name, what's on now with its progress, and what's next.
+class ChannelCard extends ConsumerWidget {
+  const ChannelCard({super.key, required this.item, this.playing = false});
   final MediaItem item;
+  final bool playing;
 
   @override
-  Widget build(BuildContext context) {
-    final info = [
-      if (item.genres.isNotEmpty) item.genres.take(2).join(' · '),
-      if (item.durationSecs != null && item.durationSecs! > 0) formatDuration(item.durationSecs),
-    ].join('  •  ');
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(Radii.card),
-      child: DecoratedBox(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0x33000000), Color(0xD9000000)],
+  Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(favoritesProvider);
+    final fav = ref.read(favoritesProvider.notifier).contains(item.id);
+    final epg = item.epg;
+    final now = epg.now;
+    final next = epg.next;
+    const muted = TextStyle(fontSize: 11.5, color: AppColors.textMuted);
+
+    return Hoverable(
+      onTap: () => openItem(context, item),
+      color: AppColors.surface,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(Radii.md),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          AspectRatio(
+            aspectRatio: 2,
+            child: Stack(fit: StackFit.expand, children: [
+              const ArtFallback(),
+              item.logo != null && item.logo!.startsWith('http')
+                  ? Padding(
+                      padding: const EdgeInsets.fromLTRB(36, 22, 36, 18),
+                      child: NetImage(item.logo, fit: BoxFit.contain, label: item.name, labelSize: 22, memCacheWidth: 300),
+                    )
+                  : Center(
+                      child: Text(initials(item.name),
+                          style: const TextStyle(
+                              fontSize: 22, fontWeight: FontWeight.w500, letterSpacing: 0.9, color: AppColors.neutral500)),
+                    ),
+              if (item.number != null)
+                Positioned(
+                  top: 8,
+                  left: 10,
+                  child: Text(item.number!, style: AppText.tabular.copyWith(fontSize: 11, color: AppColors.neutral400)),
+                ),
+              Positioned(
+                top: 4,
+                right: 4,
+                child: ArtButton(
+                  scrim: false,
+                  icon: fav ? PhosphorIconsFill.star : PhosphorIconsRegular.star,
+                  color: fav ? AppColors.accent : AppColors.neutral600,
+                  tooltip: fav ? 'Remove from favourites' : 'Add to favourites',
+                  onTap: () => toggleSaved(context, ref, item),
+                ),
+              ),
+              if (playing)
+                const Positioned(
+                  left: 10,
+                  bottom: 8,
+                  child: Tag('Playing', tone: TagTone.accent, icon: PhosphorIconsFill.speakerHigh),
+                ),
+            ]),
           ),
-        ),
-        child: Stack(children: [
-          Center(
-            child: GlassIconButton(icon: Icons.play_arrow_rounded, size: 52, onTap: () => playItem(context, item)),
-          ),
-          Positioned(
-            left: 10,
-            right: 10,
-            bottom: 10,
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              if (info.isNotEmpty)
-                Text(info, maxLines: 2, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11.5, color: Colors.white70, height: 1.3)),
-              if (item.plot != null) ...[
-                const SizedBox(height: 4),
-                Text(item.plot!, maxLines: 3, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11, color: Colors.white60, height: 1.3)),
-              ],
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
+                Expanded(
+                  child: Text(item.name,
+                      maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w500)),
+                ),
+                if (item.group.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 110),
+                    child: Text(item.group,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 11, color: AppColors.neutral600)),
+                  ),
+                ],
+              ]),
+              const SizedBox(height: 4),
+              Text(now?.title ?? 'No guide information',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 13, color: now == null ? AppColors.neutral600 : AppColors.neutral300)),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(0, 8, 0, 6),
+                child: ThinProgress(now?.progress ?? 0),
+              ),
+              Row(children: [
+                Text(now == null ? ' ' : '${formatClock(now.start)} – ${formatClock(now.end)}',
+                    style: muted.merge(AppText.tabular)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(next == null ? '' : 'Next ${formatClock(next.start)} ${next.title}',
+                      textAlign: TextAlign.right,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: muted.merge(AppText.tabular)),
+                ),
+              ]),
             ]),
           ),
         ]),
@@ -147,74 +285,127 @@ class _PosterOverlay extends StatelessWidget {
   }
 }
 
-/// 16:10 tile with a centred channel logo.
-class ChannelCard extends StatelessWidget {
-  const ChannelCard({super.key, required this.item, this.width});
+/// Height of a [ChannelCard]'s text block below its 2:1 logo band.
+const channelCardBodyHeight = 100.0;
+
+/// Compact surface card for the home "Live now" row.
+class LiveNowCard extends StatelessWidget {
+  const LiveNowCard({super.key, required this.item});
   final MediaItem item;
-  final double? width;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: width,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AspectRatio(
-            aspectRatio: 16 / 10,
-            child: Hoverable(
-              radius: Radii.card,
-              onTap: () => openItem(context, item),
-              child: Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(Radii.card),
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF1F2430), Color(0xFF161A22)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  border: Border.all(color: AppColors.outline),
-                ),
-                child: Stack(children: [
-                  Positioned.fill(
-                    child: Padding(
-                      padding: const EdgeInsets.all(18),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: item.logo == null
-                            ? NetImage(null, label: item.name)
-                            : NetImage(item.logo, fit: BoxFit.contain, label: item.name, memCacheWidth: 300),
-                      ),
-                    ),
-                  ),
-                  const Positioned(top: 8, left: 8, child: LiveBadge()),
-                ]),
-              ),
-            ),
+    final now = item.epg.now;
+    return SurfaceCard(
+      onTap: () => openItem(context, item),
+      child: Row(children: [
+        LogoTile(url: item.logo, label: item.name),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
+            Text(item.number == null ? item.group : channelLabel(item),
+                maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: AppColors.neutral500)),
+            const SizedBox(height: 3),
+            Text(now?.title ?? item.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13.5)),
+            const SizedBox(height: 6),
+            ThinProgress(now?.progress ?? 0),
+          ]),
+        ),
+      ]),
+    );
+  }
+}
+
+/// Outlined chip for a channel ("Recently watched", "Favourite channels").
+class ChannelChip extends StatefulWidget {
+  const ChannelChip({super.key, required this.item});
+  final MediaItem item;
+
+  @override
+  State<ChannelChip> createState() => _ChannelChipState();
+}
+
+class _ChannelChipState extends State<ChannelChip> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.item;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        onTap: () => openItem(context, c),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          padding: const EdgeInsets.fromLTRB(6, 6, 12, 6),
+          decoration: BoxDecoration(
+            color: _hover ? AppColors.tint(0.08) : Colors.transparent,
+            border: Border.all(color: _hover ? AppColors.accent : AppColors.divider),
+            borderRadius: BorderRadius.circular(Radii.md),
           ),
-          const SizedBox(height: 8),
-          Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
-          if (item.group.isNotEmpty)
-            Text(item.group, maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.textMuted)),
-        ],
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            LogoTile(url: c.logo, label: c.name, width: 36, height: 36),
+            const SizedBox(width: 10),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 170),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                Text(channelLabel(c), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13)),
+                Text(c.epg.now?.title ?? c.group,
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11.5, color: AppColors.textMuted)),
+              ]),
+            ),
+          ]),
+        ),
       ),
     );
   }
 }
 
-void resumeEntry(BuildContext context, ContinueItem entry) {
-  final item = entry.item!;
-  if (entry.kind == MediaKind.series) {
-    // Episode URLs live on the series detail; open it and let the user pick.
-    openItem(context, item);
-    return;
-  }
-  PlayerScreen.open(context, PlayerArgs.movie(item, startAt: entry.positionSecs));
+/// Surface row for a channel in search results.
+class ChannelResultRow extends StatelessWidget {
+  const ChannelResultRow({super.key, required this.item});
+  final MediaItem item;
+
+  @override
+  Widget build(BuildContext context) => SurfaceCard(
+        onTap: () => openItem(context, item),
+        child: Row(children: [
+          LogoTile(url: item.logo, label: item.name, width: 44, height: 44),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+              Text(channelLabel(item), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13.5)),
+              const SizedBox(height: 2),
+              Text(item.epg.now == null ? item.group : 'Now: ${item.epg.now!.title}',
+                  maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta),
+            ]),
+          ),
+          const Icon(PhosphorIconsFill.play, size: 16, color: AppColors.accent),
+        ]),
+      );
 }
 
-/// Landscape card with a progress bar, for "Continue watching".
+/// Round outlined play mark over artwork.
+class PlayMark extends StatelessWidget {
+  const PlayMark({super.key, this.size = 40});
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: AppColors.accent),
+          color: AppColors.bg.withValues(alpha: size > 60 ? 0.6 : 0.5),
+        ),
+        child: Icon(PhosphorIconsFill.play, size: size * 0.4, color: AppColors.accent),
+      );
+}
+
+/// 16:9 "Continue watching" card with a resume strip and a caption.
 class ContinueCard extends StatelessWidget {
   const ContinueCard({super.key, required this.entry, this.width = 280});
   final ContinueItem entry;
@@ -223,68 +414,29 @@ class ContinueCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final item = entry.item!;
-    final t = Theme.of(context).textTheme;
-    final subtitle = entry.kind == MediaKind.series && entry.season != null
-        ? 'S${entry.season} · E${entry.episode ?? '?'}${entry.episodeTitle != null ? ' · ${entry.episodeTitle}' : ''}'
-        : '${formatDuration(entry.positionSecs)} watched · ${(entry.progressPct).round()}%';
     return SizedBox(
       width: width,
-      child: Hoverable(
-        radius: Radii.card,
-        onTap: () => resumeEntry(context, entry),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(Radii.card),
-          child: AspectRatio(
-            aspectRatio: 16 / 9,
-            child: Stack(fit: StackFit.expand, children: [
-              NetImage(item.backdrop, label: item.name, memCacheWidth: 600),
-              const DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Colors.transparent, Color(0xE6000000)],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    stops: [0.35, 1],
-                  ),
-                ),
-              ),
-              Center(child: GlassIconButton(icon: Icons.play_arrow_rounded, size: 46, onTap: () => resumeEntry(context, entry))),
-              Positioned(
-                left: 12,
-                right: 12,
-                bottom: 12,
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: t.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
-                  Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: t.bodySmall?.copyWith(color: Colors.white70)),
-                  const SizedBox(height: 8),
-                  ProgressBar(entry.progressPct / 100),
-                ]),
-              ),
-            ]),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        AspectRatio(
+          aspectRatio: 16 / 9,
+          child: Hoverable(
+            onTap: () => resumeEntry(context, entry),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(Radii.md),
+              child: Stack(fit: StackFit.expand, children: [
+                NetImage(item.backdrop, label: item.name, labelSize: 0, memCacheWidth: 600),
+                const Center(child: PlayMark()),
+                ArtProgress(entry.progressPct / 100),
+              ]),
+            ),
           ),
         ),
-      ),
+        const SizedBox(height: 6),
+        Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.title),
+        Text(resumeSubtitle(entry), maxLines: 1, overflow: TextOverflow.ellipsis, style: AppText.meta),
+      ]),
     );
   }
-}
-
-class ProgressBar extends StatelessWidget {
-  const ProgressBar(this.value, {super.key, this.height = 4});
-  final double value;
-  final double height;
-
-  @override
-  Widget build(BuildContext context) => ClipRRect(
-        borderRadius: BorderRadius.circular(height),
-        child: LinearProgressIndicator(
-          value: value.clamp(0, 1),
-          minHeight: height,
-          backgroundColor: Colors.white24,
-          color: AppColors.accent,
-        ),
-      );
 }
 
 /// Picks the right card for an item.
@@ -295,115 +447,6 @@ class MediaCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => item.kind == MediaKind.channel
-      ? ChannelCard(item: item, width: width)
+      ? ChannelCard(item: item)
       : PosterCard(item: item, width: width);
-}
-
-/// One slide of the featured carousel: a rounded backdrop card with genre
-/// pills on top, title + actions at the bottom and a save button.
-class HeroCard extends ConsumerWidget {
-  const HeroCard({super.key, required this.item, this.compact = false});
-  final MediaItem item;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final t = Theme.of(context).textTheme;
-    ref.watch(favoritesProvider);
-    final saved = ref.read(favoritesProvider.notifier).contains(item.id);
-    final pills = <String>{
-      item.kind.label,
-      ...item.genres.take(3),
-      if (item.genres.isEmpty && item.group.isNotEmpty) item.group,
-    }.toList();
-    final details = [
-      if (item.year != null) '${item.year}',
-      if (item.durationSecs != null && item.durationSecs! > 0) formatDuration(item.durationSecs),
-    ];
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(Radii.hero),
-      child: Stack(fit: StackFit.expand, children: [
-        NetImage(item.backdrop, label: item.name),
-        const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Color(0x66000000), Colors.transparent, Color(0xE6000000)],
-              stops: [0, 0.35, 1],
-            ),
-          ),
-        ),
-        const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(colors: [Color(0x99000000), Colors.transparent], stops: [0, 0.65]),
-          ),
-        ),
-        Positioned(
-          top: compact ? 12 : 18,
-          left: compact ? 12 : 20,
-          right: 60,
-          child: Wrap(spacing: 6, runSpacing: 6, children: [for (final p in pills) Pill(p)]),
-        ),
-        Positioned(
-          top: compact ? 8 : 14,
-          right: compact ? 8 : 14,
-          child: GlassIconButton(
-            icon: saved ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-            color: saved ? AppColors.accent : Colors.white,
-            tooltip: saved ? 'Remove from My List' : 'Add to My List',
-            onTap: () => ref.read(favoritesProvider.notifier).toggle(item).catchError((_) {}),
-          ),
-        ),
-        Positioned(
-          left: compact ? 14 : 24,
-          right: compact ? 14 : 24,
-          bottom: compact ? 14 : 22,
-          child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-                Text(item.name, maxLines: 2, overflow: TextOverflow.ellipsis,
-                    style: (compact ? t.headlineSmall : t.headlineLarge)?.copyWith(height: 1.05)),
-                const SizedBox(height: 8),
-                Row(children: [
-                  if (item.rating != null && item.rating! > 0) ...[
-                    StarRating(item.rating!, size: 13),
-                    const SizedBox(width: 10),
-                  ],
-                  Text(details.join('  •  '), style: t.bodyMedium?.copyWith(color: Colors.white70)),
-                ]),
-                if (!compact && item.plot != null) ...[
-                  const SizedBox(height: 10),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 560),
-                    child: Text(item.plot!, maxLines: 2, overflow: TextOverflow.ellipsis,
-                        style: t.bodyMedium?.copyWith(color: Colors.white70, height: 1.45)),
-                  ),
-                ],
-                SizedBox(height: compact ? 12 : 16),
-                Row(children: [
-                  GradientButton(
-                    label: item.kind == MediaKind.movie ? 'Play' : 'Watch',
-                    icon: Icons.play_arrow_rounded,
-                    onPressed: () => playItem(context, item),
-                  ),
-                  const SizedBox(width: 10),
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      backgroundColor: Colors.black.withValues(alpha: 0.35),
-                      side: const BorderSide(color: Colors.white24),
-                    ),
-                    onPressed: () => openItem(context, item),
-                    icon: const Icon(Icons.info_outline_rounded, size: 20),
-                    label: Text(compact ? 'Info' : 'Details'),
-                  ),
-                ]),
-              ]),
-            ),
-          ]),
-        ),
-      ]),
-    );
-  }
 }

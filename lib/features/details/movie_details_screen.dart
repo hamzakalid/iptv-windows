@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/format.dart';
+import '../../core/icons.dart';
 import '../../core/theme.dart';
 import '../../models/media.dart';
 import '../../state/providers.dart';
@@ -24,76 +25,66 @@ class MovieDetailsScreen extends ConsumerWidget {
         appBar: AppBar(),
         body: async.hasError
             ? ErrorView(error: async.error!, onRetry: () => ref.invalidate(detailProvider))
-            : const Center(child: CircularProgressIndicator()),
+            : const Center(child: SizedBox.square(dimension: 22, child: CircularProgressIndicator(strokeWidth: 2))),
       );
     }
 
     final d = MovieDetails(item);
     final progress = ref.watch(progressProvider(item.id)).value;
+    final watched = progress?.completed == true || ref.watch(watchedIdsProvider).contains(item.id);
     final resumeAt = progress != null && !progress.completed && progress.positionSecs > 30 ? progress.positionSecs : null;
     final dur = d.durationSecs ?? progress?.durationSecs;
     final trailer = d.trailer;
+
+    void play(int startAt) => PlayerScreen.open(context, PlayerArgs.movie(item, startAt: startAt));
 
     return DetailScaffold(
       item: item,
       loading: async.isLoading && async.value == null,
       meta: [
-        if (item.rating != null && item.rating! > 0) MetaChip(item.rating!.toStringAsFixed(1), icon: Icons.star_rounded),
-        if (item.year != null) MetaChip('${item.year}'),
-        if (dur != null && dur > 0) MetaChip(formatDuration(dur), icon: Icons.schedule_rounded),
-        if (d.genre != null) MetaChip(d.genre!),
+        if (item.year != null) Text('${item.year}'),
+        if (dur != null && dur > 0) Text(formatDuration(dur)),
+        for (final g in item.genres.take(3)) Tag(g),
       ],
+      footnote: d.director == null
+          ? null
+          : Text.rich(
+              TextSpan(children: [
+                const TextSpan(text: 'Director  ', style: TextStyle(color: AppColors.neutral500)),
+                TextSpan(text: d.director),
+              ]),
+              style: const TextStyle(fontSize: 12.5, color: AppColors.neutral300),
+            ),
+      progress: resumeAt != null && dur != null && dur > 0
+          ? ResumeBar(value: resumeAt / dur, label: '${formatDuration(dur - resumeAt)} left')
+          : null,
       actions: [
-        GradientButton(
-          label: resumeAt != null ? 'Resume ${formatDuration(resumeAt)}' : 'Play',
-          icon: Icons.play_arrow_rounded,
-          onPressed: () => PlayerScreen.open(context, PlayerArgs.movie(item, startAt: resumeAt ?? 0)),
+        FilledButton.icon(
+          style: FilledButton.styleFrom(minimumSize: detailButtonSize, padding: const EdgeInsets.symmetric(horizontal: 16)),
+          onPressed: () => play(resumeAt ?? 0),
+          icon: const Icon(PhosphorIconsFill.play),
+          label: Text(resumeAt != null ? 'Resume' : (watched ? 'Watch again' : 'Play')),
         ),
         if (resumeAt != null)
           OutlinedButton.icon(
-            onPressed: () => PlayerScreen.open(context, PlayerArgs.movie(item, startAt: 0)),
-            icon: const Icon(Icons.replay_rounded),
-            label: const Text('From start'),
+            style: OutlinedButton.styleFrom(minimumSize: detailButtonSize),
+            onPressed: () => play(0),
+            icon: const Icon(PhosphorIconsRegular.arrowCounterClockwise),
+            label: const Text('Start over'),
           ),
-        FavoriteButton(item: item),
+        MyListButton(item: item),
         if (trailer != null)
-          OutlinedButton.icon(
+          TextButton.icon(
+            style: TextButton.styleFrom(minimumSize: detailButtonSize, padding: const EdgeInsets.symmetric(horizontal: 10)),
             onPressed: () => launchUrl(
               Uri.parse(trailer.startsWith('http') ? trailer : 'https://www.youtube.com/watch?v=$trailer'),
               mode: LaunchMode.externalApplication,
             ),
-            icon: const Icon(Icons.smart_display_outlined),
+            icon: const Icon(PhosphorIconsRegular.filmReel),
             label: const Text('Trailer'),
           ),
       ],
       sections: [
-        if (resumeAt != null && dur != null && dur > 0)
-          Padding(
-            padding: EdgeInsets.fromLTRB(context.pagePadding, 0, context.pagePadding, 24),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(
-                  value: (resumeAt / dur).clamp(0, 1),
-                  minHeight: 5,
-                  color: AppColors.accent,
-                  backgroundColor: AppColors.surfaceHigh,
-                ),
-              ),
-            ),
-          ),
-        if (d.plot != null)
-          TextSection(
-            title: 'Storyline',
-            text: d.plot!,
-            footer: d.director == null
-                ? null
-                : Text.rich(TextSpan(children: [
-                    const TextSpan(text: 'Director  ', style: TextStyle(color: AppColors.textMuted)),
-                    TextSpan(text: d.director, style: const TextStyle(fontWeight: FontWeight.w600)),
-                  ])),
-          ),
         if (d.actors.isNotEmpty) CastRow(actors: d.actors),
         SimilarRow(kind: MediaKind.movie, id: item.id),
       ],
