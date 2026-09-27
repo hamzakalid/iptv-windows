@@ -10,7 +10,6 @@ import '../models/account.dart';
 import '../models/media.dart';
 import '../state/providers.dart';
 import 'common.dart';
-import 'nocturne.dart';
 
 /// Opens the right screen for any catalogue item.
 void openItem(BuildContext context, MediaItem item) {
@@ -362,39 +361,6 @@ class _ChannelChipState extends State<ChannelChip> {
       ),
     );
   }
-}
-
-/// Divider-outlined box that turns accent (with a faint tint) on hover.
-class _OutlineHover extends StatefulWidget {
-  const _OutlineHover({required this.child, required this.onTap});
-  final Widget child;
-  final VoidCallback onTap;
-
-  @override
-  State<_OutlineHover> createState() => _OutlineHoverState();
-}
-
-class _OutlineHoverState extends State<_OutlineHover> {
-  bool _hover = false;
-
-  @override
-  Widget build(BuildContext context) => MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hover = true),
-        onExit: (_) => setState(() => _hover = false),
-        child: GestureDetector(
-          onTap: widget.onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 120),
-            decoration: BoxDecoration(
-              color: _hover ? AppColors.accent.withValues(alpha: 0.08) : Colors.transparent,
-              border: Border.all(color: _hover ? AppColors.accent : AppColors.divider),
-              borderRadius: BorderRadius.circular(Radii.md),
-            ),
-            child: widget.child,
-          ),
-        ),
-      );
 }
 
 /// Surface row for a channel in search results.

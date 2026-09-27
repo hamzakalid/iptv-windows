@@ -5,7 +5,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/theme.dart';
 import 'router.dart';
-import 'widgets/mini_player.dart';
 import 'state/session.dart';
 import 'widgets/app_shell.dart';
 
@@ -24,7 +23,6 @@ class IptvApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final router = ref.watch(routerProvider);
     final router = ref.watch(routerProvider);
     return MaterialApp.router(
       title: appName,

@@ -12,11 +12,10 @@ import '../../state/providers.dart';
 import '../../widgets/app_shell.dart';
 import '../../widgets/common.dart';
 import '../../widgets/media_cards.dart';
-import '../../widgets/nocturne.dart';
 import '../../widgets/paged_grid.dart';
 
-/// Movies / Series catalogue: genre aside, rating + sort filters, search and
-/// an infinitely scrolling poster grid.
+/// Catalogue browser shared by Movies, Series and Live TV: a searchable,
+/// category-filtered, sortable, infinitely scrolling grid.
 class BrowseScreen extends ConsumerStatefulWidget {
   const BrowseScreen({super.key, required this.kind});
   final MediaKind kind;
@@ -46,12 +45,7 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
 
   void _applyIntent() {
     final intent = ref.read(browseIntentProvider.notifier).take(widget.kind);
-    if (intent != null && mounted) {
-      setState(() {
-        _group = intent.group;
-        if (intent.sort != null) _filter = _filter.copyWith(sort: intent.sort);
-      });
-    }
+    if (intent != null && mounted) setState(() => _group = intent.group);
   }
 
   @override
@@ -64,13 +58,7 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
   void _onSearch(String v) {
     setState(() {}); // clear button visibility
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 350), () {
-      if (!mounted || v.trim() == _query) return;
-      setState(() {
-        _query = v.trim();
-        _allTotal = null;
-      });
-    });
+    _debounce = Timer(const Duration(milliseconds: 350), () => setState(() => _query = v.trim()));
   }
 
   String get _title => switch (widget.kind) {
@@ -276,7 +264,6 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
                       _search.clear();
                       _onSearch('');
                     },
-                    child: const Padding(padding: EdgeInsets.all(6), child: Icon(Ph.x, size: 14)),
                   ),
           ),
         ),
@@ -361,18 +348,18 @@ class _FavouriteChannels extends ConsumerWidget {
 
 String _label(String g) => g == Categories.uncategorized ? 'Uncategorized' : g;
 
-List<String?> _entries(Categories c) => [null, ...c.names, if (c.hasUncategorized) Categories.uncategorized];
+/// All, the provider's categories in its own order, then Uncategorized.
+List<String?> _entries(Categories c) => [null, ...c.ordered, if (c.hasUncategorized) Categories.uncategorized];
 
 class _CategoryChips extends StatelessWidget {
   const _CategoryChips({required this.cats, required this.selected, required this.onSelect});
   final Categories cats;
   final String? selected;
   final ValueChanged<String?> onSelect;
-  final int? allCount;
 
   @override
   Widget build(BuildContext context) {
-    final entries = categoryEntries(cats);
+    final entries = _entries(cats);
     return SizedBox(
       height: 44,
       child: ListView.separated(
@@ -382,7 +369,9 @@ class _CategoryChips extends StatelessWidget {
         separatorBuilder: (_, _) => const SizedBox(width: 6),
         itemBuilder: (_, i) {
           final g = entries[i];
-          return FilterPill(g == null ? 'All' : _label(g), selected: g == selected, onTap: () => onSelect(g));
+          final n = cats.countFor(g);
+          return FilterPill('${g == null ? 'All' : _label(g)}${n == null ? '' : ' · ${formatCount(n)}'}',
+              selected: g == selected, onTap: () => onSelect(g));
         },
       ),
     );
@@ -398,7 +387,7 @@ class _CategoryList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final entries = categoryEntries(cats);
+    final entries = _entries(cats);
     return SizedBox(
       width: 212,
       child: ListView.builder(
@@ -408,10 +397,11 @@ class _CategoryList extends StatelessWidget {
           if (i == 0) return Eyebrow(title, padding: const EdgeInsets.fromLTRB(10, 6, 10, 6));
           final g = entries[i - 1];
           final sel = g == selected;
+          final n = cats.countFor(g);
           return SideListItem(
             selected: sel,
             onTap: () => onSelect(g),
-            child: SideListLabel(g == null ? 'All' : _label(g), selected: sel),
+            child: SideListLabel(g == null ? 'All' : _label(g), selected: sel, count: n == null ? null : formatCount(n)),
           );
         },
       ),

@@ -5,13 +5,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/format.dart';
+import '../../core/icons.dart';
 import '../../core/theme.dart';
 import '../../models/account.dart';
 import '../../models/media.dart';
 import '../../state/providers.dart';
+import '../../widgets/app_shell.dart';
 import '../../widgets/common.dart';
-import '../../widgets/nocturne.dart';
-import '../browse/browse_screen.dart';
 
 enum _ActorSort {
   popularity('Popular', 'popularity'),
@@ -24,7 +24,7 @@ enum _ActorSort {
 }
 
 /// Actors credited in the user's movies and series: search, sort, an
-/// optional photos-only filter and an infinitely scrolling grid of circles.
+/// optional photos-only filter and an infinitely scrolling grid.
 class ActorsScreen extends ConsumerStatefulWidget {
   const ActorsScreen({super.key});
 
@@ -48,6 +48,7 @@ class _ActorsScreenState extends ConsumerState<ActorsScreen> {
   }
 
   void _onSearch(String v) {
+    setState(() {}); // clear button visibility
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 350), () {
       if (mounted && v.trim() != _query) setState(() => _query = v.trim());
@@ -57,50 +58,103 @@ class _ActorsScreenState extends ConsumerState<ActorsScreen> {
   @override
   Widget build(BuildContext context) {
     final wide = context.isWide;
+    final pad = context.pagePadding;
     final repo = ref.watch(repositoryProvider);
     final caption = _total == null ? '…' : '${formatCount(_total!)} actor${_total == 1 ? '' : 's'} in your library';
 
-    final header = CatalogHeader(
-      title: 'Actors',
-      caption: caption,
-      controlsWidth: 700,
-      search: CatalogSearchField(controller: _search, hint: 'Search actors', width: 240, onChanged: _onSearch),
-      controls: [
-        Seg<_ActorSort>(
-          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
-          options: [for (final s in _ActorSort.values) SegOption(s, s.label)],
-          value: _sort,
-          onChanged: (s) => setState(() => _sort = s),
-        ),
-        Pill('With photo', icon: _withPhoto ? PhF.userCircle : Ph.userCircle, selected: _withPhoto,
-            onTap: () => setState(() => _withPhoto = !_withPhoto)),
-      ],
+    final controls = <Widget>[
+      SizedBox(width: wide ? 240 : double.infinity, child: _searchField()),
+      SegmentedControl<_ActorSort>(
+        segments: [for (final s in _ActorSort.values) Segment(s, s.label)],
+        selected: _sort,
+        onChanged: (s) => setState(() => _sort = s),
+      ),
+      FilterPill(
+        'With photo',
+        icon: _withPhoto ? PhosphorIconsFill.userCircle : PhosphorIconsRegular.userCircle,
+        selected: _withPhoto,
+        onTap: () => setState(() => _withPhoto = !_withPhoto),
+      ),
+    ];
+
+    final header = Padding(
+      padding: EdgeInsets.fromLTRB(pad, wide ? 20 : 12, wide ? pad : 8, 14),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Actors', style: wide ? AppText.h3 : AppText.h4),
+              const SizedBox(height: 4),
+              Text(caption, style: AppText.meta),
+            ]),
+          ),
+          if (wide)
+            Wrap(spacing: 12, runSpacing: 10, crossAxisAlignment: WrapCrossAlignment.center, children: controls)
+          else
+            const HeaderActions(),
+        ]),
+        if (!wide) ...[
+          const SizedBox(height: 12),
+          Padding(padding: const EdgeInsets.only(right: 8), child: controls.first),
+          const SizedBox(height: 10),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(children: [
+              for (final c in controls.skip(1)) Padding(padding: const EdgeInsets.only(right: 8), child: c),
+            ]),
+          ),
+        ],
+      ]),
     );
 
     return Scaffold(
       body: SafeArea(
         bottom: false,
-        child: Column(children: [
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           header,
           Expanded(
             child: _ActorGrid(
               key: ValueKey((_query, _sort, _withPhoto, repo)),
               fetch: (offset) => repo.actors(q: _query, sort: _sort.param, withPhoto: _withPhoto, offset: offset),
-              minItemWidth: wide ? 150 : 110,
-              padding: EdgeInsets.fromLTRB(context.pagePadding, 4, context.pagePadding, 32),
+              minItemWidth: wide ? 150 : 108,
+              padding: EdgeInsets.fromLTRB(pad, 4, pad, 32),
               emptyMessage: _query.isEmpty
                   ? 'No actors yet. Cast appears here once movie and series details have been fetched from your provider.'
-                  : 'No actors match “$_query”.',
-              onTotal: (t) => setState(() => _total = t),
+                  : 'No actors match "$_query".',
+              onTotal: (t) {
+                if (t != _total) setState(() => _total = t);
+              },
             ),
           ),
         ]),
       ),
     );
   }
+
+  Widget _searchField() => SizedBox(
+        height: 36,
+        child: TextField(
+          controller: _search,
+          onChanged: _onSearch,
+          style: const TextStyle(fontSize: 14),
+          decoration: InputDecoration(
+            hintText: 'Search actors',
+            prefixIcon: const Icon(PhosphorIconsRegular.magnifyingGlass, size: 16),
+            suffixIcon: _search.text.isEmpty
+                ? null
+                : IconButton(
+                    icon: const Icon(PhosphorIconsRegular.x, size: 14),
+                    onPressed: () {
+                      _search.clear();
+                      _onSearch('');
+                    },
+                  ),
+          ),
+        ),
+      );
 }
 
-/// Paged CSS-style auto-fill grid of [ActorCard]s.
+/// Paged auto-fill grid of [ActorCard]s.
 class _ActorGrid extends StatefulWidget {
   const _ActorGrid({
     super.key,
@@ -172,7 +226,7 @@ class _ActorGridState extends State<_ActorGrid> {
         padding: widget.padding.copyWith(top: 48),
         child: Align(
           alignment: Alignment.topLeft,
-          child: Text(widget.emptyMessage, style: TextStyle(fontSize: 14, color: AppColors.muted)),
+          child: Text(widget.emptyMessage, style: const TextStyle(fontSize: 14, color: AppColors.textMuted)),
         ),
       );
     }
@@ -181,7 +235,7 @@ class _ActorGridState extends State<_ActorGrid> {
       child: LayoutBuilder(builder: (context, c) {
         const gap = 14.0;
         final w = c.maxWidth - widget.padding.horizontal;
-        final cols = ((w + gap) / (widget.minItemWidth + gap)).floor().clamp(1, 16);
+        final cols = ((w + gap) / (widget.minItemWidth + gap)).floor().clamp(2, 16);
         final itemWidth = (w - (cols - 1) * gap) / cols;
         final skeleton = _items.isEmpty && _loading;
         return GridView.builder(
@@ -230,7 +284,10 @@ class ActorCard extends StatelessWidget {
     final id = actor.id;
     return SizedBox(
       width: width,
-      child: Tappable(
+      child: Hoverable(
+        radius: Radii.md,
+        ring: const [],
+        hoverColor: AppColors.wash(0.05),
         onTap: id == null ? null : () => context.push('/actor/$id'),
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),
@@ -239,39 +296,30 @@ class ActorCard extends StatelessWidget {
               child: Center(
                 child: AspectRatio(
                   aspectRatio: 1,
-                  child: HoverRing(
-                    radius: 999,
-                    child: Container(
-                      clipBehavior: Clip.antiAlias,
-                      alignment: Alignment.center,
-                      decoration: const BoxDecoration(
-                        color: AppColors.n900,
-                        shape: BoxShape.circle,
-                        boxShadow: [BoxShadow(color: AppColors.n800, spreadRadius: 1)],
-                      ),
-                      child: actor.hasPhoto
-                          ? NetImage(actor.profileUrl, label: actor.name, memCacheWidth: 300, fontSize: 18)
-                          : LayoutBuilder(
-                              builder: (_, c) => Text(initials(actor.name),
-                                  style: TextStyle(fontSize: c.maxWidth * 0.22, color: AppColors.n500)),
-                            ),
+                  child: Container(
+                    clipBehavior: Clip.antiAlias,
+                    alignment: Alignment.center,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: AppColors.neutral900,
+                      boxShadow: Shadows.sm,
                     ),
+                    child: actor.hasPhoto
+                        ? NetImage(actor.profileUrl, label: actor.name, labelSize: 18, memCacheWidth: 300)
+                        : LayoutBuilder(
+                            builder: (_, c) => Text(initials(actor.name),
+                                style: TextStyle(fontSize: c.maxWidth * 0.22, color: AppColors.neutral500)),
+                          ),
                   ),
                 ),
               ),
             ),
             const SizedBox(height: 8),
             Text(actor.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w500)),
+                maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: AppText.title),
             const SizedBox(height: 1),
             Text(actor.creditsLabel.isEmpty ? (actor.knownFor ?? 'Actor') : actor.creditsLabel,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12, color: AppColors.muted)),
+                maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: AppText.meta),
           ]),
         ),
       ),

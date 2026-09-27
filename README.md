@@ -3,9 +3,10 @@
 One Flutter codebase for **Android, iOS and Windows** that talks to
 [`app-iptv-backend`](https://github.com/hamzakalid/app-iptv-backend).
 
-- **Home**: a rotating featured hero (tags, rating, Play / My List / Details), Continue watching with resume strips, genre chips that drive the row beneath them ("For you", Action, Drama, …), *Because you watched …* rows, Live now with what's on, Top rated, New movies and New series, plus a *what's new* bell listing titles added since your last visit
+- **Home**: a hero of titles **trending on the internet right now** (TMDB) that are also in your IPTV catalogue, with TMDB posters and backdrops served by the backend (library picks stand in when TMDB is off); Continue watching with resume strips; chips built from the **IPTV account's own categories** (provider order, item counts) that drive the row beneath them; user-level rows that don't depend on which playlist is active — *Suggested for you*, *New for you*, *Your most watched*, *Because you watched …* — then Live now, Top rated, New movies, New series and *Actors in your library*, plus a *what's new* bell listing titles added since your last visit
+- **Actors**: a searchable, sortable grid of every actor credited in your movies and series (rail destination on desktop, "See all" from Home on phones); the actor page shows the TMDB biography and dates and lists their **Movies** and **Series** as two sections
 - **Desktop shell**: a slim icon rail (Home, Movies, Series, Live TV, Library, Search) with settings and an account menu to switch playlists; press <kbd>/</kbd> anywhere to jump into search and <kbd>Esc</kbd> to leave a detail page
-- **Movies / Series**: infinite-scroll grids with a genre list, search, **sort** (recently added, top rated, release year, A–Z), **minimum rating** filter, and a **Surprise me** shuffle that picks a random title matching the current filters
+- **Movies / Series**: infinite-scroll grids with the provider's category list (with per-category counts), search, **sort** (recently added, top rated, release year, A–Z), **minimum rating** filter, and a **Surprise me** shuffle that picks a random title matching the current filters
 - **Live TV**: channel cards with number, what's on now and next, a favourite star, recently watched channels, and an All / Favourites switch
 - **Details**: cinematic header, resume/restart, My List, trailer, cast (tap through to the actor's page), "More like this", season and episode picker
 - **Library**: My List (favourites) and **History** with progress, "watched" ticks and one-tap resume; finished movies get a ✓ badge on every poster
@@ -13,6 +14,10 @@ One Flutter codebase for **Android, iOS and Windows** that talks to
 - **Player**: [`media_kit`](https://pub.dev/packages/media_kit) (libmpv) plays HLS, MPEG-TS and MP4 on every platform, under its own keyboard-first chrome. Live: channel up/down, a **channel list**, a four-hour **guide** and the EPG timeline. On demand: seek bar, ±10 s, **speed**, an **episodes** panel and an **Up next** countdown. Both: **audio & subtitle** tracks, volume, full screen and a shortcuts sheet (<kbd>?</kbd>). Resumes from your last position and reports progress every 15 s
 - **Playlists**: add Xtream Codes or M3U with **Test connection**, see live sync status, re-sync, switch or delete
 - **Adaptive layout**: bottom navigation on phones; icon rail on tablets and Windows, with hover and keyboard-focus rings on cards and paging arrows on rows
+
+## Backend features
+
+The trending hero (`GET /home/featured`), the user-level rows (`GET /suggestions`), category counts (`items` on `/categories`) and the Actors page (`GET /actors`, `/actors/:id` with separate movies/series) need the backend from `main`. Suggestions are built from your watch history across **all** your playlists, so they don't change when you switch the active playlist. The hero needs `TMDB_API_READ_TOKEN` on the server; without it (or before the first sync) it falls back to the best-rated and newest titles in the library. Category chips and lists use the provider's order; alphabetical order is used only on older servers that don't send `items`.
 
 ## Design system
 
@@ -56,7 +61,7 @@ lib/
   data/                  ApiClient (Dio + bearer token) and IptvRepository (all endpoints)
   state/                 Riverpod providers: session, active playlist, home, favourites …
   widgets/               shared UI: cards, rows, paged grid, adaptive shell
-  features/              auth, home, browse, live, details, player, search, favorites, settings, actor, actors
+  features/              auth, home, browse, live, details, player, search, favorites, settings, actor
 test/models_test.dart    parsing tests against real backend payload shapes
 ```
 
@@ -65,7 +70,5 @@ test/models_test.dart    parsing tests against real backend payload shapes
 - **Cleartext HTTP is enabled** on Android (`usesCleartextTraffic`) and iOS (ATS `NSAllowsArbitraryLoads`), because most IPTV providers and LAN backends use plain `http://`.
 - The JWT is kept in the OS secure store (`flutter_secure_storage`); the server URL and the chosen playlist are kept in `shared_preferences`.
 - Sorting, rating/year filters and hydrated history need the backend from the same branch (`sort`, `minRating`, `yearFrom`/`yearTo` on list endpoints; `GET /watch-events?hydrate=1`). Older servers ignore the params, so lists stay unsorted and the History tab is empty.
-- The trending hero (`GET /home/featured`), the user-level rows (`GET /suggestions`), category counts (`items` on `/categories`) and the Actors page (`GET /actors` with counts, `/actors/:id` with separate movies/series) also come from that backend. Suggestions are built from your watch history across **all** your playlists, so they don't change when you switch the active playlist. The hero needs `TMDB_API_READ_TOKEN` on the server; without it (or before the first sync) it falls back to the best-rated and newest titles in the library.
-- Category pills and asides use the provider's order; alphabetical order is used only on older servers that don't send `items`.
 - The models accept both the shapes in `docs/API.md` and what the server sends today (for example, a flat series `episodes` array rather than a season-keyed map).
 - Branding lives in `lib/core/theme.dart` (`appName` and `AppColors`).

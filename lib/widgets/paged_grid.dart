@@ -86,29 +86,13 @@ class _PagedMediaGridState extends State<PagedMediaGrid> {
   void didUpdateWidget(PagedMediaGrid old) {
     super.didUpdateWidget(old);
     if (old.queryKey != widget.queryKey) {
-      _reset();
+      _generation++;
+      _items.clear();
+      _total = -1;
+      _error = null;
+      _loading = false;
       _load();
     }
-  }
-
-  void _reset() {
-    _generation++;
-    _items.clear();
-    _total = -1;
-    _error = null;
-    _loading = false;
-    _report();
-  }
-
-  // Deferred so parents may setState from the callback at any point.
-  void _report() {
-    final cb = widget.onTotal;
-    if (cb == null) return;
-    final loaded = _items.length;
-    final total = _total < 0 ? null : _total;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) cb(loaded, total);
-    });
   }
 
   Future<void> _load() async {
@@ -131,7 +115,13 @@ class _PagedMediaGridState extends State<PagedMediaGrid> {
   }
 
   Future<void> _refresh() async {
-    setState(_reset);
+    setState(() {
+      _generation++;
+      _items.clear();
+      _total = -1;
+      _error = null;
+      _loading = false;
+    });
     await _load();
   }
 

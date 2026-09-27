@@ -8,7 +8,7 @@ import '../../core/theme.dart';
 import '../../models/account.dart';
 import '../../state/providers.dart';
 import '../../widgets/common.dart';
-import '../../widgets/nocturne.dart';
+import '../../widgets/media_row.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -19,7 +19,6 @@ class SettingsScreen extends ConsumerWidget {
     final playlists = ref.watch(playlistsProvider);
     final active = ref.watch(activePlaylistProvider);
     final pad = context.pagePadding;
-    void addPlaylist() => context.push('/settings/add-playlist');
 
     return Scaffold(
       appBar: AppBar(
@@ -101,40 +100,6 @@ class SettingsScreen extends ConsumerWidget {
   }
 }
 
-/// Pushed-route page header: back button + PageTitle, padding 20/24/14.
-class _PageHeader extends StatelessWidget {
-  const _PageHeader({required this.title, required this.caption, required this.onBack});
-  final String title;
-  final String caption;
-  final VoidCallback onBack;
-
-  @override
-  Widget build(BuildContext context) {
-    final pad = context.pagePadding;
-    return Padding(
-      padding: EdgeInsets.fromLTRB(pad - 8, 20, pad, 14),
-      child: Row(children: [
-        NocIconButton(icon: Ph.arrowLeft, tooltip: 'Back', onPressed: onBack),
-        const SizedBox(width: 6),
-        Expanded(child: PageTitle(title, caption: caption)),
-      ]),
-    );
-  }
-}
-
-/// `.card` — surface, radius md, ~14 padding.
-class _Card extends StatelessWidget {
-  const _Card({required this.child});
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(Radii.md)),
-        child: child,
-      );
-}
-
 class _AccountCard extends StatelessWidget {
   const _AccountCard({required this.email, required this.server});
   final String email;
@@ -176,32 +141,6 @@ class _PlaylistCard extends ConsumerWidget {
     } catch (e) {
       if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
     }
-  }
-
-  Future<void> _delete(BuildContext context, WidgetRef ref) async {
-    final p = playlist;
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: Text('Delete "${p.name}"?'),
-        content: Text('The playlist will be removed from your account.',
-            style: TextStyle(fontSize: 14, color: AppColors.muted)),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
-          OutlinedButton(
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.danger,
-              side: BorderSide(color: AppColors.danger.withValues(alpha: 0.6)),
-            ),
-            onPressed: () => Navigator.pop(c, true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true || !context.mounted) return;
-    if (ref.read(activePlaylistProvider) == p.id) ref.read(activePlaylistProvider.notifier).select(null);
-    await _run(context, ref, () => ref.read(repositoryProvider).deletePlaylist(p.id), 'Playlist deleted');
   }
 
   @override

@@ -5,7 +5,6 @@ import '../../core/icons.dart';
 import '../../core/theme.dart';
 import '../../state/providers.dart';
 import '../../widgets/common.dart';
-import '../../widgets/nocturne.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -94,16 +93,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   onPressed: () => setState(() => _obscure = !_obscure),
                   icon: Icon(_obscure ? PhosphorIconsRegular.eye : PhosphorIconsRegular.eyeSlash, size: 16),
                 ),
-                validator: (v) => (v == null || v.length < 8) ? 'At least 8 characters' : null,
               ),
+              validator: (v) => (v == null || v.length < 8) ? 'At least 8 characters' : null,
             ),
             const SizedBox(height: 10),
             Align(
               alignment: Alignment.centerLeft,
-              child: NocButton.ghost(
-                icon: _showServer ? Ph.caretUp : Ph.hardDrives,
-                label: _showServer ? 'Hide server settings' : 'Server: ${_server.text}',
-                foreground: _showServer ? AppColors.accent : AppColors.n400,
+              child: TextButton.icon(
                 onPressed: () => setState(() => _showServer = !_showServer),
                 icon: Icon(_showServer ? PhosphorIconsRegular.caretUp : PhosphorIconsRegular.hardDrives),
                 label: Text(_showServer ? 'Hide server settings' : 'Server: ${_server.text}'),
@@ -111,7 +107,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             ),
             AnimatedSize(
               duration: const Duration(milliseconds: 200),
-              alignment: Alignment.topLeft,
               child: _showServer
                   ? Padding(
                       padding: const EdgeInsets.only(bottom: 10),
@@ -153,17 +148,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ? const SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2))
                   : Text(_signup ? 'Create account' : 'Sign in'),
             ),
-            const SizedBox(height: 20),
-            Row(children: [
+            const SizedBox(height: 16),
+            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
               Text(_signup ? 'Already have an account?' : 'New here?',
-                  style: TextStyle(fontSize: 13, color: AppColors.muted)),
-              const SizedBox(width: 4),
-              NocButton.ghost(
-                label: _signup ? 'Sign in' : 'Create account',
+                  style: const TextStyle(color: AppColors.textMuted)),
+              TextButton(
                 onPressed: () => setState(() {
                   _signup = !_signup;
                   _error = null;
                 }),
+                child: Text(_signup ? 'Sign in' : 'Create account'),
               ),
             ]),
           ],
@@ -171,51 +165,36 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       ),
     );
 
-    if (!wide) {
-      return Scaffold(
-        body: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 420), child: form),
-            ),
-          ),
-        ),
-      );
-    }
+    final panel = Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 420), child: form),
+      ),
+    );
 
-    // Desktop: narrow, left-aligned form column; the rest is a quiet showcase.
     return Scaffold(
-      body: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        SizedBox(
-          width: context.isExpanded ? 560 : 500,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(56, 40, 56, 32),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const _Brand(),
-              Expanded(
-                child: Align(
-                  alignment: const Alignment(-1, -0.2),
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(vertical: 24),
-                    child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 380), child: form),
-                  ),
-                ),
+      body: Stack(children: [
+        const Positioned.fill(child: _Backdrop()),
+        if (wide)
+          Row(children: [
+            const Expanded(flex: 6, child: _Showcase()),
+            Expanded(
+              flex: 5,
+              child: Container(
+                color: AppColors.bg.withValues(alpha: 0.85),
+                child: panel,
               ),
-            ]),
-          ),
-        ),
-        const Expanded(child: _Showcase()),
+            ),
+          ])
+        else
+          SafeArea(child: panel),
       ]),
     );
   }
 }
 
-/// `.field` — 12px label at 70% text above the input.
-class _Field extends StatelessWidget {
-  const _Field({required this.label, required this.child});
-  final String label;
-  final Widget child;
+class _Logo extends StatelessWidget {
+  const _Logo();
 
   @override
   Widget build(BuildContext context) => Row(children: [
@@ -239,8 +218,7 @@ class _Backdrop extends StatelessWidget {
   const _Backdrop();
 
   @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+  Widget build(BuildContext context) => const DecoratedBox(
         decoration: BoxDecoration(
           gradient: RadialGradient(
             center: Alignment(-0.6, -0.8),
@@ -254,13 +232,6 @@ class _Backdrop extends StatelessWidget {
 
 class _Showcase extends StatelessWidget {
   const _Showcase();
-
-  static const _features = [
-    (Ph.television, 'Live TV with EPG', 'Now and next on every channel, with a full guide.'),
-    (Ph.filmSlate, 'Movies & Series', 'Details, cast and episode lists straight from your provider.'),
-    (Ph.arrowsClockwise, 'Resume anywhere', 'Progress and My List sync across your devices.'),
-    (Ph.playlist, 'Xtream & M3U', 'Bring any playlist and switch between them at any time.'),
-  ];
 
   @override
   Widget build(BuildContext context) => const Padding(

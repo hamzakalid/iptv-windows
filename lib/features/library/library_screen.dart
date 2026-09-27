@@ -42,15 +42,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     }
   }
 
-  void _setTab(LibraryTab t) {
-    setState(() => _tab = t);
-    // Keep the URL in sync so a later deep link to the same tab still applies.
-    context.go('/library?tab=${t == LibraryTab.history ? 'history' : 'list'}');
-  }
-
   @override
   Widget build(BuildContext context) {
-    final wide = context.isWide;
     final pad = context.pagePadding;
     final wide = context.isWide;
     final saved = ref.watch(favoritesProvider).value?.length ?? 0;
@@ -217,52 +210,17 @@ class _History extends ConsumerWidget {
 class _HistoryRow extends StatelessWidget {
   const _HistoryRow({required this.event});
   final WatchEvent event;
-  final VoidCallback onRemove;
 
-  @override
-  State<_HistoryRow> createState() => _HistoryRowState();
-}
-
-class _HistoryRowState extends State<_HistoryRow> {
-  bool _hover = false;
-
-  WatchEvent get e => widget.event;
-
-  void _resume() {
-    final item = e.item!;
-    switch (e.kind) {
+  void _resume(BuildContext context) {
+    final item = event.item!;
+    switch (event.kind) {
       case MediaKind.movie:
-        PlayerScreen.open(context, PlayerArgs.movie(item, startAt: e.completed ? 0 : e.positionSecs));
+        PlayerScreen.open(context, PlayerArgs.movie(item, startAt: event.completed ? 0 : event.positionSecs));
       case MediaKind.series:
-        // Episode URLs live on the series detail; open it and let the user pick.
         openItem(context, item);
       case MediaKind.channel:
         PlayerScreen.open(context, PlayerArgs.channel(item));
     }
-  }
-
-  String _sub() {
-    final item = e.item!;
-    if (e.kind == MediaKind.channel) {
-      // The programme that was on when it was watched, if the cached EPG covers it.
-      final t = e.watchedAt;
-      final epg = cachedEpg(item);
-      final entries = [?epg?.now, ?epg?.next, ...?epg?.upcoming];
-      final prog = t == null
-          ? null
-          : entries
-              .where((p) => p.start != null && p.end != null && !t.isBefore(p.start!) && t.isBefore(p.end!))
-              .firstOrNull;
-      return prog != null ? 'Watched ${prog.title}' : (item.group.isEmpty ? 'Live TV' : item.group);
-    }
-    if (e.completed) return 'Finished';
-    if (e.kind == MediaKind.series) {
-      if (e.season == null) return 'Started';
-      return 'S${e.season} · E${e.episode ?? '?'}${e.episodeTitle != null ? ' — ${e.episodeTitle}' : ''}';
-    }
-    final dur = e.durationSecs;
-    final pct = '${e.progressPct.round()}%';
-    return dur != null && dur > e.positionSecs ? '$pct · ${_hm(dur - e.positionSecs)} left' : pct;
   }
 
   @override
@@ -351,29 +309,4 @@ class _HistoryRowState extends State<_HistoryRow> {
       ),
     );
   }
-}
-
-/// CSS `repeat(auto-fill, minmax(min, 1fr))` with row/column gaps.
-class _AutoGrid extends StatelessWidget {
-  const _AutoGrid({required this.minWidth, required this.gapX, required this.gapY, required this.children});
-  final double minWidth;
-  final double gapX;
-  final double gapY;
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) => LayoutBuilder(builder: (context, c) {
-        final cols = ((c.maxWidth + gapX) / (minWidth + gapX)).floor().clamp(1, 99);
-        return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          for (var r = 0; r * cols < children.length; r++) ...[
-            if (r > 0) SizedBox(height: gapY),
-            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              for (var i = 0; i < cols; i++) ...[
-                if (i > 0) SizedBox(width: gapX),
-                Expanded(child: r * cols + i < children.length ? children[r * cols + i] : const SizedBox.shrink()),
-              ],
-            ]),
-          ],
-        ]);
-      });
 }
