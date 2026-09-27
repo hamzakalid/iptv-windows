@@ -6,7 +6,6 @@ import '../../core/format.dart';
 import '../../core/icons.dart';
 import '../../core/json.dart';
 import '../../core/theme.dart';
-import '../../models/account.dart';
 import '../../models/media.dart';
 import '../../state/providers.dart';
 import '../../widgets/common.dart';
@@ -69,7 +68,6 @@ class _SeriesDetailsScreenState extends ConsumerState<SeriesDetailsScreen> {
 
     return DetailScaffold(
       item: item,
-      kindLabel: 'Series',
       loading: async.isLoading && async.value == null,
       meta: [
         if (item.year != null) Text('${item.year}'),
@@ -157,12 +155,6 @@ class _SeriesDetailsScreenState extends ConsumerState<SeriesDetailsScreen> {
       ],
     );
   }
-}
-
-double _pct(WatchEvent e) {
-  if (e.progressPct > 0) return (e.progressPct / 100).clamp(0.0, 1.0);
-  final d = e.durationSecs;
-  return d == null || d <= 0 ? 0 : (e.positionSecs / d).clamp(0.0, 1.0);
 }
 
 class _EpisodeRow extends StatelessWidget {

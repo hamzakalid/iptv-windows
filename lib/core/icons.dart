@@ -55,6 +55,10 @@ abstract final class PhosphorIconsRegular {
   static const televisionSimple = IconData(0xeae6, fontFamily: 'PhosphorRegular');
   static const trash = IconData(0xe4a6, fontFamily: 'PhosphorRegular');
   static const user = IconData(0xe4c2, fontFamily: 'PhosphorRegular');
+  static const userCircle = IconData(0xe4c4, fontFamily: 'PhosphorRegular');
+  static const usersThree = IconData(0xe68e, fontFamily: 'PhosphorRegular');
+  static const fire = IconData(0xe242, fontFamily: 'PhosphorRegular');
+  static const sparkle = IconData(0xe6a2, fontFamily: 'PhosphorRegular');
   static const warningCircle = IconData(0xe4e2, fontFamily: 'PhosphorRegular');
   static const x = IconData(0xe4f6, fontFamily: 'PhosphorRegular');
 }
@@ -72,5 +76,7 @@ abstract final class PhosphorIconsFill {
   static const speakerHigh = IconData(0xe44a, fontFamily: 'PhosphorFill');
   static const star = IconData(0xe46a, fontFamily: 'PhosphorFill');
   static const televisionSimple = IconData(0xeae6, fontFamily: 'PhosphorFill');
+  static const usersThree = IconData(0xe68e, fontFamily: 'PhosphorFill');
+  static const userCircle = IconData(0xe4c4, fontFamily: 'PhosphorFill');
   static const xCircle = IconData(0xe4f8, fontFamily: 'PhosphorFill');
 }

@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../core/icons.dart';
 import '../core/theme.dart';
 import 'common.dart';
-import 'nocturne.dart';
 
 /// Flush-left h5 with an optional muted note and a ghost action.
 class SectionHeader extends StatelessWidget {
@@ -15,7 +14,6 @@ class SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final pad = context.pagePadding;
     final pad = context.pagePadding;
     return Padding(
       padding: padding ?? EdgeInsets.fromLTRB(pad, 0, pad - 8, 10),
@@ -45,7 +43,6 @@ class RowAction extends StatelessWidget {
   const RowAction(this.label, {super.key, required this.onTap});
   final String label;
   final VoidCallback onTap;
-  final String label;
 
   @override
   Widget build(BuildContext context) => TextButton(
@@ -55,7 +52,7 @@ class RowAction extends StatelessWidget {
       );
 }
 
-/// Horizontal list that pages with Nocturne arrow buttons on wide screens.
+/// Horizontal list that pages with arrow buttons on wide screens.
 class ArrowScroller extends StatefulWidget {
   const ArrowScroller({
     super.key,
@@ -72,9 +69,6 @@ class ArrowScroller extends StatefulWidget {
   final Widget Function(BuildContext, int) itemBuilder;
   final double separator;
   final EdgeInsets? padding;
-
-  /// Space at the bottom the arrows ignore (e.g. the title under posters),
-  /// so they centre on the artwork.
   final double arrowInset;
 
   @override
@@ -109,7 +103,7 @@ class _ArrowScrollerState extends State<ArrowScroller> {
       onExit: (_) => setState(() => _hover = false),
       child: SizedBox(
         height: widget.height,
-        child: Stack(clipBehavior: Clip.none, children: [
+        child: Stack(children: [
           ListView.separated(
             controller: _controller,
             scrollDirection: Axis.horizontal,
@@ -129,7 +123,6 @@ class _ArrowScrollerState extends State<ArrowScroller> {
   }
 }
 
-/// Surface circle with an n700 hairline and a Phosphor caret.
 class _Arrow extends StatelessWidget {
   const _Arrow({required this.left, required this.visible, required this.onTap, required this.inset});
   final bool left;

@@ -52,6 +52,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           branch('/series', const BrowseScreen(kind: MediaKind.series)),
           branch('/live', const LiveScreen()),
           branch('/library', const LibraryScreen()),
+          branch('/actors', const ActorsScreen()),
           branch('/search', const SearchScreen()),
         ],
       ),

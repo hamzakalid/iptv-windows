@@ -175,15 +175,13 @@ final whatsNewProvider = Provider<List<MediaItem>>((ref) {
 });
 
 /// A pending request from another screen to open Browse pre-filtered.
-typedef BrowseRequest = ({MediaKind kind, String? group, SortOption? sort});
+final browseIntentProvider = NotifierProvider<BrowseIntent, ({MediaKind kind, String? group})?>(BrowseIntent.new);
 
-final browseIntentProvider = NotifierProvider<BrowseIntent, BrowseRequest?>(BrowseIntent.new);
-
-class BrowseIntent extends Notifier<BrowseRequest?> {
+class BrowseIntent extends Notifier<({MediaKind kind, String? group})?> {
   @override
-  BrowseRequest? build() => null;
-  void set(MediaKind kind, String? group, {SortOption? sort}) => state = (kind: kind, group: group, sort: sort);
-  BrowseRequest? take(MediaKind kind) {
+  ({MediaKind kind, String? group})? build() => null;
+  void set(MediaKind kind, String? group) => state = (kind: kind, group: group);
+  ({MediaKind kind, String? group})? take(MediaKind kind) {
     final s = state;
     if (s == null || s.kind != kind) return null;
     state = null;
@@ -224,81 +222,4 @@ class FavoritesController extends AsyncNotifier<List<Favorite>> {
       ref.invalidateSelf();
     }
   }
-}
-
-/// Now/next EPG for one channel. List rows carry cached `details` when the
-/// server has them; otherwise the detail endpoint fetches the short EPG.
-/// Kept for a few minutes so cards, the player and the guide share it.
-final channelEpgProvider = FutureProvider.autoDispose.family<ChannelEpg?, String>((ref, id) async {
-  final link = ref.keepAlive();
-  final t = Timer(const Duration(minutes: 5), link.close);
-  ref.onDispose(t.cancel);
-  try {
-    final c = await ref.watch(repositoryProvider).detail(MediaKind.channel, id);
-    return c.details == null ? null : ChannelEpg.fromDetails(c.details);
-  } catch (_) {
-    return null;
-  }
-});
-
-/// EPG straight from a list row, when the server already cached it.
-ChannelEpg? cachedEpg(MediaItem channel) =>
-    channel.details == null ? null : ChannelEpg.fromDetails(channel.details);
-
-/// Channels the user watched most recently, newest first (from history).
-final recentChannelsProvider = Provider<List<MediaItem>>((ref) {
-  final seen = <String>{};
-  return (ref.watch(historyProvider).value ?? const <WatchEvent>[])
-      .where((e) => e.kind == MediaKind.channel && e.item != null && seen.add(e.contentId))
-      .map((e) => e.item!)
-      .take(8)
-      .toList();
-});
-
-/// Bumped to ask the Search screen to focus its field (the `/` shortcut).
-final searchFocusRequestProvider = NotifierProvider<SearchFocusRequest, int>(SearchFocusRequest.new);
-
-class SearchFocusRequest extends Notifier<int> {
-  @override
-  int build() => 0;
-  void request() => state++;
-}
-
-/// Recent search terms, persisted, newest first (max 6).
-final recentSearchesProvider = NotifierProvider<RecentSearches, List<String>>(RecentSearches.new);
-
-class RecentSearches extends Notifier<List<String>> {
-  static const _key = 'recent_searches';
-
-  @override
-  List<String> build() => ref.read(prefsProvider).getStringList(_key) ?? const [];
-
-  void add(String q) {
-    final v = q.trim().toLowerCase();
-    if (v.isEmpty) return;
-    _save([v, ...state.where((s) => s != v)].take(6).toList());
-  }
-
-  void remove(String q) => _save(state.where((s) => s != q).toList());
-
-  void _save(List<String> next) {
-    ref.read(prefsProvider).setStringList(_key, next);
-    state = next;
-  }
-}
-
-/// Watch progress (0–1) by content id, from Continue watching.
-final progressByIdProvider = Provider<Map<String, double>>((ref) => {
-      for (final c in ref.watch(homeProvider).value?.continueWatching ?? const <ContinueItem>[])
-        c.contentId: (c.progressPct / 100).clamp(0.0, 1.0),
-    });
-
-/// Content id of whatever is playing (full screen or picture-in-picture),
-/// so cards can show a "Playing" tag.
-final playingContentIdProvider = NotifierProvider<PlayingContentId, String?>(PlayingContentId.new);
-
-class PlayingContentId extends Notifier<String?> {
-  @override
-  String? build() => null;
-  void set(String? id) => state = id;
 }
