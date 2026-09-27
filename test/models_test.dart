@@ -5,6 +5,7 @@ import 'package:iptv_app/models/media.dart';
 
 void main() {
   _moreTests();
+  _discoveryTests();
   group('ApiClient.normalizeBaseUrl', () {
     test('adds scheme and /api', () {
       expect(ApiClient.normalizeBaseUrl('192.168.1.5:4000'), 'http://192.168.1.5:4000/api');
@@ -173,5 +174,116 @@ void _moreTests() {
     }, MediaKind.movie);
     expect(m.genres, ['Action', 'Adventure', 'Sci-Fi']);
     expect(m.durationSecs, 5400);
+  });
+}
+
+void _discoveryTests() {
+  group('Categories', () {
+    test('parses provider items with counts and keeps provider order', () {
+      final c = Categories.fromJson({
+        'categories': ['Action', 'Drama'],
+        'hasUncategorized': true,
+        'uncategorizedCount': 3,
+        'total': 20,
+        'items': [
+          {'id': 'x', 'externalId': '21', 'name': 'Drama', 'order': 0, 'count': 12},
+          {'id': 'y', 'externalId': '20', 'name': 'Action', 'order': 1, 'count': 5},
+        ],
+      });
+      expect(c.names, ['Action', 'Drama']);
+      expect(c.ordered, ['Drama', 'Action']);
+      expect(c.countFor('Drama'), 12);
+      expect(c.countFor(null), 20);
+      expect(c.countFor(Categories.uncategorized), 3);
+      expect(c.countFor('Nope'), isNull);
+    });
+
+    test('old servers: names only, no counts', () {
+      final c = Categories.fromJson({'categories': ['B', 'A'], 'hasUncategorized': false});
+      expect(c.ordered, ['B', 'A']);
+      expect(c.countFor('A'), isNull);
+      expect(c.countFor(null), isNull);
+    });
+  });
+
+  test('ActorPage splits movies and series and reads TMDB details', () {
+    final p = ActorPage.fromJson({
+      'actor': {
+        '_id': 'a1', 'displayName': 'Tom Hanks', 'profilePath': '/h.jpg', 'biography': 'Bio',
+        'birthday': '1956-07-09', 'placeOfBirth': 'Concord', 'knownForDepartment': 'Acting',
+      },
+      'movies': [{'_id': 'm1', 'name': 'Big'}],
+      'series': [{'_id': 's1', 'name': 'Band of Brothers'}, {'_id': 's2', 'name': 'From the Earth'}],
+    });
+    expect(p.actor.profileUrl, 'https://image.tmdb.org/t/p/w185/h.jpg');
+    expect(p.actor.birthday!.year, 1956);
+    expect(p.actor.age, greaterThan(60));
+    expect(p.movies.single.kind, MediaKind.movie);
+    expect(p.series.map((s) => s.kind).toSet(), {MediaKind.series});
+    expect(p.total, 3);
+  });
+
+  test('Actor list rows carry credit counts', () {
+    final a = Actor.fromJson({'_id': 'a', 'name': 'Judi Dench', 'movieCount': 2, 'seriesCount': 1});
+    expect(a.titleCount, 3);
+    expect(a.creditsLabel, '2 movies · 1 series');
+    expect(a.hasPhoto, isFalse);
+  });
+
+  test('Featured slides keep TMDB art and the playable catalogue row', () {
+    final f = Featured.fromJson({
+      'source': 'tmdb',
+      'matched': 1,
+      'items': [
+        {
+          'kind': 'movie', 'source': 'tmdb', 'tmdbId': 1, 'title': 'Dune: Part Two', 'overview': 'Paul.',
+          'year': 2024, 'rating': 8.3, 'voteCount': 5000,
+          'posterUrl': 'https://image.tmdb.org/t/p/w500/p.jpg', 'backdropUrl': 'https://image.tmdb.org/t/p/w1280/b.jpg',
+          'content': {'_id': 'm1', 'name': 'EN - Dune Part Two (2024)', 'logo': 'http://prov/p.jpg', 'url': 'http://stream'},
+        },
+        {'kind': 'series', 'source': 'catalog', 'title': 'X', 'content': null},
+      ],
+    });
+    expect(f.items, hasLength(1)); // rows without content are dropped
+    final s = f.items.single;
+    expect(s.isTrending, isTrue);
+    expect(s.backdrop, 'https://image.tmdb.org/t/p/w1280/b.jpg');
+    expect(s.poster, 'https://image.tmdb.org/t/p/w500/p.jpg');
+    expect(s.item.name, 'EN - Dune Part Two (2024)');
+    expect(s.item.url, 'http://stream');
+    final fallback = FeaturedItem.fromMedia(s.item);
+    expect(fallback.isTrending, isFalse);
+    expect(fallback.poster, 'http://prov/p.jpg');
+  });
+
+  test('Suggestions parses every section and the basis label', () {
+    final s = Suggestions.fromJson({
+      'profile': {'basis': 'history', 'seedCount': 3, 'genres': [{'name': 'Drama', 'weight': 1}, {'name': 'Sci-Fi', 'weight': 0.5}]},
+      'suggested': [
+        {'type': 'movie', 'score': 0.7, 'reasons': [{'kind': 'similar', 'label': 'Because you watched Dune', 'seedId': 'd'}],
+         'content': {'_id': 'm1', 'name': 'Arrival'}},
+      ],
+      'newArrivals': [
+        {'type': 'series', 'score': 0.9, 'reasons': [{'kind': 'new', 'label': 'Added today'}], 'content': {'_id': 's1', 'name': 'Foundation'}},
+      ],
+      'mostWatched': [
+        {'type': 'series', 'watchedSecs': 18400, 'playCount': 9, 'episodesWatched': 8, 'lastWatchedAt': '2026-09-27T10:00:00Z',
+         'completed': false, 'content': {'_id': 's2', 'name': 'Severance'}},
+        {'type': 'movie', 'watchedSecs': 7200, 'playCount': 3, 'content': {'_id': 'm2', 'name': 'Heat'}},
+      ],
+      'becauseYouWatched': [
+        {'seed': {'id': 'd', 'type': 'movie', 'name': 'Dune', 'signal': 'watched'}, 'title': 'Because you watched Dune',
+         'items': [{'type': 'movie', 'content': {'_id': 'm3', 'name': 'Blade Runner'}}]},
+        {'seed': {'id': 'e', 'type': 'movie', 'name': 'Empty'}, 'title': 'Because you watched Empty', 'items': []},
+      ],
+    });
+    expect(s.isPersonalised, isTrue);
+    expect(s.basisLabel, 'Because you watch Drama and Sci-Fi');
+    expect(s.suggested.single.reason, 'Because you watched Dune');
+    expect(s.newArrivals.single.item.kind, MediaKind.series);
+    expect(s.mostWatched.first.label, '8 episodes · 5h 07m');
+    expect(s.mostWatched.last.label, 'Watched 3× · 2h 00m');
+    expect(s.becauseYouWatched, hasLength(1)); // empty rows dropped
+    expect(Suggestions().basisLabel, 'Top picks from your library');
   });
 }

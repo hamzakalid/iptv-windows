@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/format.dart';
 import '../../core/theme.dart';
 import '../../models/account.dart';
 import '../../models/media.dart';
@@ -201,7 +202,8 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
 
 String categoryLabel(String g) => g == Categories.uncategorized ? 'Uncategorized' : g;
 
-List<String?> categoryEntries(Categories c) => [null, ...c.names, if (c.hasUncategorized) Categories.uncategorized];
+/// All, then the provider's categories in its own order, then Uncategorized.
+List<String?> categoryEntries(Categories c) => [null, ...c.ordered, if (c.hasUncategorized) Categories.uncategorized];
 
 /// Page header: title + caption on the left, search and controls on the
 /// right (desktop, bottom-aligned, wrapping when tight); stacked on phones.
@@ -318,8 +320,8 @@ class _CatalogSearchFieldState extends State<CatalogSearchField> {
       );
 }
 
-/// 200px aside: overline + category rows. Only "All" carries a count —
-/// the API has no per-category totals.
+/// 200px aside: overline + category rows with the provider's item counts
+/// (from `/categories`), "All" showing the current total.
 class CategoryAside extends StatelessWidget {
   const CategoryAside({
     super.key,
@@ -347,9 +349,10 @@ class CategoryAside extends StatelessWidget {
         itemBuilder: (_, i) {
           if (i == 0) return Overline(title, padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6));
           final g = entries[i - 1];
+          final n = g == null ? (allCount ?? cats.countFor(null)) : cats.countFor(g);
           return SideListItem(
             label: g == null ? 'All' : categoryLabel(g),
-            count: g == null && allCount != null ? '$allCount' : null,
+            count: n == null ? null : formatCount(n),
             selected: g == selected,
             onTap: () => onSelect(g),
           );
@@ -378,7 +381,12 @@ class CategoryChips extends StatelessWidget {
         separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (_, i) {
           final g = entries[i];
-          return Pill(g == null ? 'All' : categoryLabel(g), selected: g == selected, onTap: () => onSelect(g));
+          final n = cats.countFor(g);
+          return Pill(
+            '${g == null ? 'All' : categoryLabel(g)}${n == null ? '' : ' · ${formatCount(n)}'}',
+            selected: g == selected,
+            onTap: () => onSelect(g),
+          );
         },
       ),
     );

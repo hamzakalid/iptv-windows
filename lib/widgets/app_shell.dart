@@ -26,7 +26,8 @@ abstract final class Branch {
   static const series = 2;
   static const live = 3;
   static const library = 4;
-  static const search = 5;
+  static const actors = 5;
+  static const search = 6;
 }
 
 const _railDests = [
@@ -35,6 +36,7 @@ const _railDests = [
   _Dest('Series', Ph.televisionSimple, PhF.televisionSimple, Branch.series),
   _Dest('Live TV', Ph.broadcast, PhF.broadcast, Branch.live),
   _Dest('Library', Ph.bookmarkSimple, PhF.bookmarkSimple, Branch.library),
+  _Dest('Actors', Ph.usersThree, PhF.usersThree, Branch.actors),
   _Dest('Search (/)', Ph.magnifyingGlass, PhF.magnifyingGlass, Branch.search),
 ];
 
@@ -98,11 +100,12 @@ class _AppShellState extends ConsumerState<AppShell> {
         ]),
       );
     }
-    final index = shell.currentIndex.clamp(0, _mobileDests.length - 1);
+    // Actors and Search have no tab on phones (reached from Home / the header).
+    final index = shell.currentIndex >= _mobileDests.length ? 0 : shell.currentIndex;
     return Scaffold(
       body: shell,
       bottomNavigationBar: NavigationBar(
-        selectedIndex: shell.currentIndex == Branch.search ? 0 : index,
+        selectedIndex: index,
         onDestinationSelected: (i) => shell.goBranch(i, initialLocation: i == shell.currentIndex),
         destinations: [
           for (final d in _mobileDests)
